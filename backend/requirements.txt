@@ -1,0 +1,19 @@
+# Django Core
+Django==4.2.7
+djangorestframework==3.14.0
+django-cors-headers==4.3.0
+djangorestframework-simplejwt==5.5.1
+
+# Database
+dj-database-url==2.1.0
+
+# Cache & Task Queue
+redis==5.0.1
+celery==5.3.4
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# Notes:
+# - Heavy/optional deps (Pillow/OpenCV/transformers/librosa/web3/reportlab/sendgrid/psycopg2)
+#   are moved to requirements-optional.txt so Django can run on more Python versions quickly.
