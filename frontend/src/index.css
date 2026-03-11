@@ -2,8 +2,201 @@
 @tailwind components;
 @tailwind utilities;
 
+/* CreativeChain Design System - Dark blockchain aesthetic with teal accents */
+/* All colors MUST be HSL */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Syne:wght@400;500;600;700;800&display=swap');
+
 @layer base {
+  :root {
+    /* Base surfaces */
+    --background: 222 28% 7%;
+    --foreground: 210 40% 96%;
+
+    --card: 222 25% 10%;
+    --card-foreground: 210 40% 96%;
+
+    --popover: 222 25% 10%;
+    --popover-foreground: 210 40% 96%;
+
+    /* Brand - Teal/Cyan */
+    --primary: 174 84% 48%;
+    --primary-foreground: 222 28% 7%;
+    --primary-glow: 174 84% 65%;
+
+    /* Secondary - Slightly lighter surface */
+    --secondary: 222 22% 15%;
+    --secondary-foreground: 210 40% 96%;
+
+    /* Muted */
+    --muted: 222 20% 14%;
+    --muted-foreground: 215 16% 55%;
+
+    /* Accent - Violet tones */
+    --accent: 258 70% 60%;
+    --accent-foreground: 210 40% 96%;
+
+    /* Destructive */
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 210 40% 98%;
+
+    /* Borders & inputs */
+    --border: 222 18% 18%;
+    --input: 222 18% 18%;
+    --ring: 174 84% 48%;
+
+    --radius: 0.75rem;
+
+    /* Sidebar */
+    --sidebar-background: 222 30% 6%;
+    --sidebar-foreground: 210 30% 75%;
+    --sidebar-primary: 174 84% 48%;
+    --sidebar-primary-foreground: 222 28% 7%;
+    --sidebar-accent: 222 25% 12%;
+    --sidebar-accent-foreground: 210 40% 96%;
+    --sidebar-border: 222 18% 13%;
+    --sidebar-ring: 174 84% 48%;
+
+    /* Chart colors */
+    --chart-1: 174 84% 48%;
+    --chart-2: 258 70% 60%;
+    --chart-3: 38 90% 55%;
+    --chart-4: 330 70% 60%;
+    --chart-5: 200 80% 55%;
+
+    /* Custom gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(174 84% 48%), hsl(200 80% 55%));
+    --gradient-card: linear-gradient(145deg, hsl(222 25% 11%), hsl(222 22% 9%));
+    --gradient-hero: linear-gradient(135deg, hsl(222 28% 7%) 0%, hsl(222 30% 5%) 100%);
+    --gradient-teal-glow: radial-gradient(ellipse at center, hsl(174 84% 48% / 0.15) 0%, transparent 70%);
+
+    /* Shadows */
+    --shadow-teal: 0 0 30px hsl(174 84% 48% / 0.2);
+    --shadow-card: 0 4px 24px hsl(222 28% 4% / 0.6);
+    --shadow-glow: 0 0 60px hsl(174 84% 48% / 0.15);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply bg-background text-foreground;
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Syne', sans-serif;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: 'Syne', sans-serif;
+  }
+
+  .font-body {
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+  .gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-primary);
+  }
+
+  .card-glass {
+    background: var(--gradient-card);
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--shadow-card);
+  }
+
+  .glow-teal {
+    box-shadow: var(--shadow-teal);
+  }
+
+  .glow-border {
+    border: 1px solid hsl(var(--primary) / 0.4);
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.1);
+  }
+
+  .bg-teal-glow {
+    background: var(--gradient-teal-glow);
+  }
+
+  .stat-card {
+    background: var(--gradient-card);
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--shadow-card);
+    transition: all 0.3s ease;
+  }
+
+  .stat-card:hover {
+    border-color: hsl(var(--primary) / 0.4);
+    box-shadow: var(--shadow-teal);
+    transform: translateY(-2px);
+  }
+
+  .nav-active {
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+    border-left: 2px solid hsl(var(--primary));
+  }
+
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--secondary)) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  .pulse-teal {
+    animation: pulse-teal 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-teal {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .badge-verified {
+    background: hsl(var(--primary) / 0.15);
+    color: hsl(var(--primary));
+    border: 1px solid hsl(var(--primary) / 0.3);
+  }
+
+  .badge-pending {
+    background: hsl(38 90% 55% / 0.15);
+    color: hsl(38 90% 55%);
+    border: 1px solid hsl(38 90% 55% / 0.3);
+  }
+
+  .badge-flagged {
+    background: hsl(0 72% 55% / 0.15);
+    color: hsl(0 72% 55%);
+    border: 1px solid hsl(0 72% 55% / 0.3);
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--primary) / 0.4);
+    border-radius: 4px;
   }
 }

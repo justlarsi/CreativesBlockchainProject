@@ -1,25 +1,41 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
-import './App.css'
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Index from "./pages/Index";
+import Dashboard from "./pages/Dashboard";
+import Works from "./pages/Works";
+import Marketplace from "./pages/Marketplace";
+import Infringement from "./pages/Infringement";
+import Collaboration from "./pages/Collaboration";
+import Legal from "./pages/Legal";
+import Settings from "./pages/Settings";
+import NotFound from "./pages/NotFound";
 
-function App() {
-  return (
-    <Router>
-      <div className="min-h-screen bg-gray-50">
+const queryClient = new QueryClient();
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <Toaster />
+      <Sonner />
+      <BrowserRouter>
         <Routes>
-          <Route path="/" element={
-            <div className="container mx-auto px-4 py-8">
-              <h1 className="text-4xl font-bold text-center mb-8">
-                Welcome to CreativeChain
-              </h1>
-              <p className="text-center text-gray-600">
-                Decentralized IP Protection & Licensing Platform
-              </p>
-            </div>
-          } />
+          <Route path="/" element={<Index />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/works" element={<Works />} />
+          <Route path="/marketplace" element={<Marketplace />} />
+          <Route path="/infringement" element={<Infringement />} />
+          <Route path="/collaboration" element={<Collaboration />} />
+          <Route path="/legal" element={<Legal />} />
+          <Route path="/settings" element={<Settings />} />
+          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+          <Route path="*" element={<NotFound />} />
         </Routes>
-      </div>
-    </Router>
-  )
-}
+      </BrowserRouter>
+    </TooltipProvider>
+  </QueryClientProvider>
+);
 
-export default App
+export default App;
