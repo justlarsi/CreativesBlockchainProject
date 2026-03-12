@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 from pathlib import Path
 import os
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -95,14 +96,26 @@ WSGI_APPLICATION = 'creativechain.wsgi.application'
 
 import dj_database_url
 
-def _default_sqlite_url() -> str:
-    # Keep local dev easy: if DATABASE_URL is not set, use SQLite.
-    # This avoids requiring Postgres + psycopg2 just to boot the server.
-    return f"sqlite:///{(BASE_DIR / 'db.sqlite3').as_posix()}"
+
+def _get_required_postgres_url() -> str:
+    database_url = os.getenv('DATABASE_URL', '').strip()
+    if not database_url:
+        raise ImproperlyConfigured('DATABASE_URL is required and must point to PostgreSQL.')
+
+    valid_schemes = ('postgres://', 'postgresql://')
+    if not database_url.startswith(valid_schemes):
+        raise ImproperlyConfigured('DATABASE_URL must use a PostgreSQL URL scheme.')
+
+    return database_url
+
+
+def _parse_csv_env(var_name: str) -> list[str]:
+    raw_value = os.getenv(var_name, '')
+    return [item.strip() for item in raw_value.split(',') if item.strip()]
 
 DATABASES = {
     'default': dj_database_url.config(
-        default=os.getenv('DATABASE_URL', _default_sqlite_url()),
+        default=_get_required_postgres_url(),
         conn_max_age=600
     )
 }
@@ -179,10 +192,7 @@ SIMPLE_JWT = {
 }
 
 # CORS Configuration
-CORS_ALLOWED_ORIGINS = os.getenv(
-    'CORS_ALLOWED_ORIGINS',
-    'http://localhost:5173,http://localhost:3000'
-).split(',')
+CORS_ALLOWED_ORIGINS = _parse_csv_env('CORS_ALLOWED_ORIGINS')
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -198,7 +208,7 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
 # Blockchain Configuration
-POLYGON_MUMBAI_RPC_URL = os.getenv('POLYGON_MUMBAI_RPC_URL', '')
+POLYGON_AMOY_RPC_URL = os.getenv('POLYGON_AMOY_RPC_URL', os.getenv('POLYGON_MUMBAI_RPC_URL', ''))
 CONTRACT_IP_REGISTRY_ADDRESS = os.getenv('CONTRACT_IP_REGISTRY_ADDRESS', '')
 CONTRACT_LICENSE_AGREEMENT_ADDRESS = os.getenv('CONTRACT_LICENSE_AGREEMENT_ADDRESS', '')
 CONTRACT_COLLABORATIVE_WORK_ADDRESS = os.getenv('CONTRACT_COLLABORATIVE_WORK_ADDRESS', '')

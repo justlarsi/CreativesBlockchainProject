@@ -6,6 +6,7 @@ djangorestframework-simplejwt==5.5.1
 
 # Database
 dj-database-url==2.1.0
+psycopg2-binary==2.9.9
 
 # Cache & Task Queue
 redis==5.0.1
@@ -15,5 +16,5 @@ celery==5.3.4
 python-dotenv==1.0.0
 
 # Notes:
-# - Heavy/optional deps (Pillow/OpenCV/transformers/librosa/web3/reportlab/sendgrid/psycopg2)
+# - Heavy/optional deps (Pillow/OpenCV/transformers/librosa/web3/reportlab/sendgrid)
 #   are moved to requirements-optional.txt so Django can run on more Python versions quickly.

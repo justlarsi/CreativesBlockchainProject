@@ -55,53 +55,92 @@ creativechain/
 
 - Node.js 18+
 - Python 3.11+
-- PostgreSQL 14+
-- Redis 7+
-- Docker (optional, for containerized development)
+- PostgreSQL 14+ (required; no SQLite fallback in development)
+- Redis 7+ (required for Celery task queue)
+- Docker and Docker Compose (recommended for local Postgres/Redis)
 
-### Development Setup
+### Quick Start (Step 0: Foundation Lock)
 
-1. **Clone the repository**
+1. **Clone and bootstrap**
    ```bash
    git clone <repository-url>
    cd creativechain
    ```
 
-2. **Set up Backend**
+2. **Start PostgreSQL and Redis (Docker)**
+   ```bash
+   docker-compose up -d
+   # This starts:
+   # - postgres:14 on localhost:5432
+   # - redis:7 on localhost:6379
+   ```
+
+3. **Set up Backend**
    ```bash
    cd backend
    python -m venv venv
-   source venv/bin/activate  # Linux/Mac
-   # venv\Scripts\activate  # Windows
+   source venv/bin/activate  # Linux/Mac or venv\Scripts\activate (Windows)
    pip install -r requirements.txt
    cp .env.example .env
-   # Edit .env with your configuration
+   # Edit .env with actual values:
+   #   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/creativechain_dev
+   #   REDIS_URL=redis://localhost:6379/0
+   #   POLYGON_AMOY_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/<YOUR_KEY>
+   #   CORS_ALLOWED_ORIGINS=http://localhost:8080,http://localhost:3000
    python manage.py migrate
-   python manage.py runserver
+   python manage.py runserver  # Server on http://localhost:8000
    ```
 
-3. **Set up Frontend**
+4. **Verify Backend Health**
+   ```bash
+   curl http://localhost:8000/health
+   # Should return 200 with healthy status for database, redis, blockchain
+   ```
+
+5. **Set up Frontend (separate terminal)**
    ```bash
    cd frontend
-   npm install
+   npm install  # or bun install
    cp .env.example .env.local
-   # Edit .env.local with your configuration
-   npm run dev
+   # Edit .env.local:
+   #   VITE_API_BASE_URL=http://localhost:8000
+   #   VITE_CHAIN_ID=80002
+   #   VITE_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/<YOUR_KEY>
+   npm run dev  # Dev server on http://localhost:8080
    ```
 
-4. **Set up Smart Contracts**
+6. **Set up Smart Contracts (separate terminal)**
    ```bash
    cd contracts
    npm install
    cp .env.example .env
-   # Edit .env with your Alchemy API key
-   npx hardhat compile
+   # Edit .env:
+   #   POLYGON_AMOY_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/<YOUR_KEY>
+   npx hardhat compile  # Compile contracts
+   npx hardhat test     # Run contract tests
    ```
 
-5. **Set up Docker (Optional)**
+7. **Start Celery Worker (separate terminal, from backend/)**
    ```bash
-   docker-compose up -d
+   cd backend
+   celery -A creativechain worker -l info
+   # Worker should connect to Redis and await tasks
    ```
+
+### Post-Setup Verification
+
+All three services should be running:
+- Backend: `http://localhost:8000` — health check passes
+- Frontend: `http://localhost:8080` — dev server loaded
+- Contracts: compile/test pass without errors
+- Redis: reachable at `localhost:6379`
+- PostgreSQL: connected and migrated
+
+If health check fails at `http://localhost:8000/health`, check:
+1. PostgreSQL is running: `docker-compose ps`
+2. Redis is running: `docker-compose ps`
+3. `POLYGON_AMOY_RPC_URL` is set in `.env`
+4. Backend logs for error messages: `python manage.py runserver` output
 
 ## Documentation
 

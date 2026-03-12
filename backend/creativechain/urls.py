@@ -18,10 +18,14 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+
+from .health import health_check
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('health', health_check, name='health-root'),
+    path('health/', health_check, name='health-root-slash'),
+    path('api/v1/health/', health_check, name='health-api-v1'),
     path('api/v1/auth/', include('apps.accounts.urls')),
     path('api/v1/works/', include('apps.works.urls')),
     path('api/v1/marketplace/', include('apps.marketplace.urls')),
