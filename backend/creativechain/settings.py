@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 from pathlib import Path
 import os
+from urllib.parse import parse_qs, urlparse
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
@@ -47,6 +48,7 @@ INSTALLED_APPS = [
     # Third-party apps
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     
     # Local apps
@@ -57,6 +59,15 @@ INSTALLED_APPS = [
     'apps.infringement',
     'apps.legal',
     'apps.collaboration',
+]
+
+# Custom user model
+AUTH_USER_MODEL = 'accounts.User'
+
+# Password hashing — bcrypt with cost 12 (BCryptSHA256PasswordHasher.rounds defaults to 12)
+PASSWORD_HASHERS = [
+    'django.contrib.auth.hashers.BCryptSHA256PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2PasswordHasher',   # fallback for legacy hashes
 ]
 
 MIDDLEWARE = [
@@ -105,6 +116,14 @@ def _get_required_postgres_url() -> str:
     valid_schemes = ('postgres://', 'postgresql://')
     if not database_url.startswith(valid_schemes):
         raise ImproperlyConfigured('DATABASE_URL must use a PostgreSQL URL scheme.')
+
+    parsed = urlparse(database_url)
+    if not parsed.hostname:
+        raise ImproperlyConfigured('DATABASE_URL must include a valid PostgreSQL hostname.')
+
+    sslmode = parse_qs(parsed.query).get('sslmode', [''])[0]
+    if sslmode != 'require':
+        raise ImproperlyConfigured('DATABASE_URL must include sslmode=require for Supabase PostgreSQL.')
 
     return database_url
 
@@ -179,6 +198,18 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
     ),
+    # Simple global throttle (Step 1).
+    # TODO [Future Step]: Upgrade to ScopedRateThrottle with tighter per-endpoint
+    #      limits for login/register and a relaxed rate for refresh + general API usage.
+    #      Tracked in AI_DOCS/4_PLAN.md Step 14 (Security Hardening).
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/hour',
+        'user': '1000/day',
+    },
 }
 
 # JWT Configuration
@@ -189,6 +220,13 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+    'ALGORITHM': 'HS256',
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+    'TOKEN_TYPE_CLAIM': 'token_type',
 }
 
 # CORS Configuration

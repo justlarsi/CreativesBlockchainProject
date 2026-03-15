@@ -3,6 +3,7 @@ Django==4.2.7
 djangorestframework==3.14.0
 django-cors-headers==4.3.0
 djangorestframework-simplejwt==5.5.1
+bcrypt==5.0.0
 
 # Database
 dj-database-url==2.1.0

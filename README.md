@@ -57,7 +57,7 @@ creativechain/
 - Python 3.11+
 - PostgreSQL 14+ (required; no SQLite fallback in development)
 - Redis 7+ (required for Celery task queue)
-- Docker and Docker Compose (recommended for local Postgres/Redis)
+- Docker and Docker Compose (optional; Redis only)
 
 ### Quick Start (Step 0: Foundation Lock)
 
@@ -67,11 +67,10 @@ creativechain/
    cd creativechain
    ```
 
-2. **Start PostgreSQL and Redis (Docker)**
+2. **Start Redis (Docker)**
    ```bash
-   docker-compose up -d
+   docker compose up -d
    # This starts:
-   # - postgres:14 on localhost:5432
    # - redis:7 on localhost:6379
    ```
 
@@ -83,7 +82,7 @@ creativechain/
    pip install -r requirements.txt
    cp .env.example .env
    # Edit .env with actual values:
-   #   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/creativechain_dev
+   #   DATABASE_URL=postgresql://<SUPABASE_DB_USER>:<SUPABASE_DB_PASSWORD>@<SUPABASE_DB_HOST>:5432/<SUPABASE_DB_NAME>?sslmode=require
    #   REDIS_URL=redis://localhost:6379/0
    #   POLYGON_AMOY_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/<YOUR_KEY>
    #   CORS_ALLOWED_ORIGINS=http://localhost:8080,http://localhost:3000
@@ -134,11 +133,11 @@ All three services should be running:
 - Frontend: `http://localhost:8080` — dev server loaded
 - Contracts: compile/test pass without errors
 - Redis: reachable at `localhost:6379`
-- PostgreSQL: connected and migrated
+- PostgreSQL: connected to Supabase and migrated
 
 If health check fails at `http://localhost:8000/health`, check:
-1. PostgreSQL is running: `docker-compose ps`
-2. Redis is running: `docker-compose ps`
+1. Redis is running: `docker compose ps`
+2. `DATABASE_URL` points to your Supabase PostgreSQL instance (with `sslmode=require`)
 3. `POLYGON_AMOY_RPC_URL` is set in `.env`
 4. Backend logs for error messages: `python manage.py runserver` output
 
