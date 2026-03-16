@@ -66,7 +66,11 @@ def _check_blockchain() -> dict:
     request = urllib.request.Request(
         url=rpc_url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            # Some public RPC gateways reject Python's default urllib user agent.
+            "User-Agent": "creativechain-health/1.0",
+        },
         method="POST",
     )
 

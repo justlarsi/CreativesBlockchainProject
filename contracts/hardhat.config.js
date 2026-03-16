@@ -1,8 +1,7 @@
-require("@nomicfoundation/hardhat-toolbox");
-require("dotenv").config();
+import "dotenv/config";
 
-/** @type import('hardhat/config').HardhatUserConfig */
-module.exports = {
+/** @type {import('hardhat/config').HardhatUserConfig} */
+const config = {
   solidity: {
     version: "0.8.24",
     settings: {
@@ -14,10 +13,15 @@ module.exports = {
   },
   networks: {
     hardhat: {
+      type: "edr-simulated",
       chainId: 1337,
     },
     amoy: {
-      url: process.env.POLYGON_AMOY_RPC_URL || process.env.POLYGON_MUMBAI_RPC_URL || "",
+      type: "http",
+      url:
+        process.env.POLYGON_AMOY_RPC_URL ||
+        process.env.POLYGON_MUMBAI_RPC_URL ||
+        "http://127.0.0.1:8545",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 80002,
     },
@@ -34,3 +38,6 @@ module.exports = {
     },
   },
 };
+
+export default config;
+
