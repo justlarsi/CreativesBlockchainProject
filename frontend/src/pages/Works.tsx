@@ -1,23 +1,15 @@
 import { AppLayout } from "@/components/AppLayout";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, Search, Grid, List, Shield, Eye, MoreHorizontal, Hash, Clock } from "lucide-react";
 import { RegisterWorkDialog } from "@/components/RegisterWorkDialog";
 import { toast } from "sonner";
+import { WorkRecord, listWorks } from "@/api/works";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
-const works = [
-  { id: "CC-0001", title: "Abstract Series #14", type: "Illustration", status: "verified", registered: "Feb 15, 2026", hash: "0x4f3a...8b2c", licenses: 3, views: 284, color: "bg-primary/10", emoji: "🎨" },
-  { id: "CC-0002", title: "Nairobi Skyline Collection", type: "Photography", status: "verified", registered: "Feb 10, 2026", hash: "0x7c1d...5e90", licenses: 8, views: 1420, color: "bg-accent/10", emoji: "📷" },
-  { id: "CC-0003", title: "Afrobeat Mix Vol. 3", type: "Music", status: "verified", registered: "Jan 28, 2026", hash: "0x9a2f...3d71", licenses: 1, views: 673, color: "bg-chart-3/10", emoji: "🎵" },
-  { id: "CC-0004", title: "Maasai Heritage Portraits", type: "Photography", status: "pending", registered: "Feb 18, 2026", hash: "Processing...", licenses: 0, views: 12, color: "bg-chart-4/10", emoji: "📷" },
-  { id: "CC-0005", title: "Urban Decay — Essay", type: "Writing", status: "verified", registered: "Jan 15, 2026", hash: "0x2b8e...7f44", licenses: 2, views: 390, color: "bg-chart-5/10", emoji: "✍️" },
-  { id: "CC-0006", title: "Botanical Illustrations Pack", type: "Illustration", status: "flagged", registered: "Dec 20, 2025", hash: "0x5c9a...1d82", licenses: 5, views: 2110, color: "bg-destructive/10", emoji: "🌿" },
-];
 
 const statusConfig = {
   verified: { label: "Verified", class: "badge-verified" },
@@ -27,20 +19,72 @@ const statusConfig = {
 
 const filters = ["all", "illustration", "photography", "music", "writing", "verified", "pending", "flagged"];
 
+function getAccessToken(): string {
+  return localStorage.getItem("access") || localStorage.getItem("access_token") || "";
+}
+
+function mapWorkToCard(work: WorkRecord) {
+  const status = work.status === "UPLOADED" ? "verified" : work.status === "VALIDATION_FAILED" || work.status === "UPLOAD_FAILED" ? "flagged" : "pending";
+  const categoryLabel =
+    work.category === "image"
+      ? "Illustration"
+      : work.category === "audio"
+      ? "Music"
+      : work.category === "video"
+      ? "Video"
+      : work.category === "text"
+      ? "Writing"
+      : "Document";
+
+  return {
+    id: `CW-${work.id}`,
+    title: work.title,
+    type: categoryLabel,
+    status,
+    registered: new Date(work.created_at).toLocaleDateString(),
+    hash: work.mime_type || "Pending upload",
+    licenses: 0,
+    views: 0,
+    color: "bg-primary/10",
+    emoji: work.category === "audio" ? "🎵" : work.category === "video" ? "🎬" : work.category === "text" ? "✍️" : work.category === "document" ? "📄" : "🎨",
+  };
+}
+
 export default function Works() {
   const [view, setView] = useState<"grid" | "list">("grid");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [works, setWorks] = useState<WorkRecord[]>([]);
 
-  const filtered = works.filter((w) => {
+  const refreshWorks = async () => {
+    const token = getAccessToken();
+    if (!token) {
+      setWorks([]);
+      return;
+    }
+    try {
+      const response = await listWorks(token);
+      setWorks(response);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not load works.");
+    }
+  };
+
+  useEffect(() => {
+    void refreshWorks();
+  }, []);
+
+  const cards = useMemo(() => works.map(mapWorkToCard), [works]);
+
+  const filtered = cards.filter((w) => {
     const matchesFilter = filter === "all" || w.type.toLowerCase() === filter || w.status === filter;
     const matchesSearch = w.title.toLowerCase().includes(search.toLowerCase());
     return matchesFilter && matchesSearch;
   });
 
   return (
-    <AppLayout title="My Works" subtitle="47 registered creative works">
+    <AppLayout title="My Works" subtitle={`${works.length} registered creative works`}>
       <div className="space-y-5 animate-fade-in">
         {/* Toolbar */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -167,7 +211,7 @@ export default function Works() {
         )}
       </div>
 
-      <RegisterWorkDialog open={registerOpen} onOpenChange={setRegisterOpen} />
+      <RegisterWorkDialog open={registerOpen} onOpenChange={setRegisterOpen} onRegistered={refreshWorks} />
     </AppLayout>
   );
 }

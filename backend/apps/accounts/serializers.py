@@ -5,6 +5,8 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
+from .models import Wallet, WalletChallenge
+
 User = get_user_model()
 
 
@@ -72,4 +74,45 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data = super().validate(attrs)
         data['user'] = UserProfileSerializer(self.user).data
         return data
+
+
+class WalletSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Wallet
+        fields = ('id', 'address', 'is_primary', 'created_at')
+        read_only_fields = ('id', 'created_at')
+
+
+class WalletChallengeRequestSerializer(serializers.Serializer):
+    address = serializers.CharField(max_length=42)
+
+    def validate_address(self, value: str) -> str:
+        if not value.startswith('0x') or len(value) != 42:
+            raise serializers.ValidationError('Wallet address must be a valid EVM address.')
+        return value.lower()
+
+
+class WalletChallengeSerializer(serializers.ModelSerializer):
+    challenge_id = serializers.IntegerField(source='id')
+    message = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WalletChallenge
+        fields = ('challenge_id', 'wallet_address', 'message', 'expires_at')
+
+    def get_message(self, obj: WalletChallenge) -> str:
+        return (
+            'CreativeChain Wallet Verification\n'
+            f'User ID: {obj.user_id}\n'
+            f'Wallet: {obj.wallet_address}\n'
+            f'Nonce: {obj.nonce}\n'
+            'Chain ID: 80002'
+        )
+
+
+class WalletVerifySerializer(serializers.Serializer):
+    challenge_id = serializers.IntegerField()
+    signature = serializers.CharField()
+    chain_id = serializers.IntegerField()
+
 

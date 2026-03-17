@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.db.models import Q
 
 
 class User(AbstractUser):
@@ -32,3 +33,47 @@ class User(AbstractUser):
 
     def __str__(self) -> str:
         return self.username
+
+
+class Wallet(models.Model):
+    """Wallets linked to a user account through signed ownership proof."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='wallets')
+    address = models.CharField(max_length=42)
+    is_primary = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'accounts_wallet'
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'address'], name='unique_wallet_per_user'),
+            models.UniqueConstraint(
+                fields=['user'],
+                condition=Q(is_primary=True),
+                name='unique_primary_wallet_per_user',
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.user_id}:{self.address}'
+
+
+class WalletChallenge(models.Model):
+    """Single-use challenge for wallet ownership verification."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='wallet_challenges')
+    wallet_address = models.CharField(max_length=42)
+    nonce = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'accounts_wallet_challenge'
+        ordering = ['-created_at']
+
+    @property
+    def is_used(self) -> bool:
+        return self.used_at is not None
+

@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { Upload, Hash, Shield, CheckCircle, ArrowRight, ArrowLeft, FileText, Loader2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { Upload, CheckCircle, ArrowRight, ArrowLeft, FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { createWorkMetadata, uploadWorkBinary } from "@/api/works";
 import {
   Dialog,
   DialogContent,
@@ -12,45 +13,76 @@ import {
 interface RegisterWorkDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onRegistered?: () => Promise<void> | void;
 }
 
-const steps = ["Upload", "Details", "Fingerprint", "Confirm"];
+const steps = ["Upload", "Details", "Confirm"];
+type WorkCategory = "image" | "audio" | "video" | "text" | "document";
+const detailFields: Array<{ key: "title" | "description"; label: string; placeholder: string }> = [
+  { key: "title", label: "Title", placeholder: "My Creative Work" },
+  { key: "description", label: "Description", placeholder: "Brief description of your work" },
+];
 
-export function RegisterWorkDialog({ open, onOpenChange }: RegisterWorkDialogProps) {
+function getAccessToken(): string {
+  return localStorage.getItem("access") || localStorage.getItem("access_token") || "";
+}
+
+export function RegisterWorkDialog({ open, onOpenChange, onRegistered }: RegisterWorkDialogProps) {
   const [step, setStep] = useState(0);
   const [processing, setProcessing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [formData, setFormData] = useState({
     title: "",
-    type: "Illustration",
+    category: "image" as WorkCategory,
     description: "",
-    tags: "",
-    license: "Personal",
     fileName: "",
+    file: null as File | null,
   });
 
   const reset = () => {
     setStep(0);
     setProcessing(false);
-    setFormData({ title: "", type: "Illustration", description: "", tags: "", license: "Personal", fileName: "" });
+    setFormData({ title: "", category: "image", description: "", fileName: "", file: null });
   };
 
-  const handleFileSelect = () => {
-    setFormData({ ...formData, fileName: "artwork_final.png" });
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = event.target.files?.[0];
+    if (!selected) {
+      return;
+    }
+    setFormData({ ...formData, fileName: selected.name, file: selected });
     toast.success("File selected");
   };
 
-  const handleFingerprint = () => {
-    setProcessing(true);
-    setTimeout(() => {
-      setProcessing(false);
-      setStep(3);
-    }, 2000);
-  };
+  const handleSubmit = async () => {
+    if (!formData.file) {
+      toast.error("Choose a file first.");
+      return;
+    }
 
-  const handleSubmit = () => {
-    toast.success("Work registered on Polygon blockchain!", { duration: 4000 });
-    reset();
-    onOpenChange(false);
+    const accessToken = getAccessToken();
+    if (!accessToken) {
+      toast.error("Sign in first to register your work.");
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      const created = await createWorkMetadata(accessToken, {
+        title: formData.title,
+        description: formData.description,
+        category: formData.category,
+      });
+      await uploadWorkBinary(accessToken, created.id, formData.file);
+      toast.success("Work uploaded successfully.", { duration: 4000 });
+      await onRegistered?.();
+      reset();
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Upload failed.");
+    } finally {
+      setProcessing(false);
+    }
   };
 
   return (
@@ -58,7 +90,7 @@ export function RegisterWorkDialog({ open, onOpenChange }: RegisterWorkDialogPro
       <DialogContent className="bg-card border-border max-w-lg">
         <DialogHeader>
           <DialogTitle className="font-display text-base">Register New Work</DialogTitle>
-          <DialogDescription className="text-xs">Step {step + 1} of 4 — {steps[step]}</DialogDescription>
+          <DialogDescription className="text-xs">Step {step + 1} of 3 - {steps[step]}</DialogDescription>
         </DialogHeader>
 
         {/* Progress */}
@@ -74,7 +106,7 @@ export function RegisterWorkDialog({ open, onOpenChange }: RegisterWorkDialogPro
         {step === 0 && (
           <div className="space-y-4">
             <button
-              onClick={handleFileSelect}
+              onClick={() => fileInputRef.current?.click()}
               className="w-full h-32 border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-2 hover:border-primary/40 hover:bg-primary/5 transition-all cursor-pointer"
             >
               {formData.fileName ? (
@@ -87,13 +119,20 @@ export function RegisterWorkDialog({ open, onOpenChange }: RegisterWorkDialogPro
                 <>
                   <Upload className="h-6 w-6 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Click to upload your creative work</span>
-                  <span className="text-xs text-muted-foreground/60">PNG, JPG, MP3, MP4, PDF — Max 100MB</span>
+                  <span className="text-xs text-muted-foreground/60">Max 500MB</span>
                 </>
               )}
             </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={handleFileSelect}
+              accept="image/*,audio/*,video/*,text/plain,text/markdown,text/csv,.pdf,.doc,.docx"
+            />
             <button
-              onClick={() => formData.fileName && setStep(1)}
-              disabled={!formData.fileName}
+              onClick={() => formData.file && setStep(1)}
+              disabled={!formData.file}
               className="w-full py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               Continue <ArrowRight className="h-3.5 w-3.5" />
@@ -104,43 +143,35 @@ export function RegisterWorkDialog({ open, onOpenChange }: RegisterWorkDialogPro
         {/* Step 1: Details */}
         {step === 1 && (
           <div className="space-y-3">
-            {[
-              { key: "title", label: "Title", placeholder: "My Creative Work" },
-              { key: "description", label: "Description", placeholder: "Brief description of your work" },
-              { key: "tags", label: "Tags", placeholder: "art, digital, abstract (comma separated)" },
-            ].map((f) => (
+            {detailFields.map((f) => (
               <div key={f.key}>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">{f.label}</label>
                 <input
-                  value={formData[f.key as keyof typeof formData]}
+                  value={formData[f.key]}
                   onChange={(e) => setFormData({ ...formData, [f.key]: e.target.value })}
                   placeholder={f.placeholder}
                   className="w-full px-3 py-2 text-xs bg-muted rounded-lg border border-border focus:outline-none focus:border-primary/50 text-foreground placeholder:text-muted-foreground transition-all"
                 />
               </div>
             ))}
-            <div className="grid grid-cols-2 gap-3">
+            <div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Type</label>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Category</label>
                 <select
-                  value={formData.type}
-                  onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value as WorkCategory })}
                   className="w-full px-3 py-2 text-xs bg-muted rounded-lg border border-border focus:outline-none focus:border-primary/50 text-foreground transition-all"
                 >
-                  {["Illustration", "Photography", "Music", "Writing", "3D Art", "Video"].map((t) => (
-                    <option key={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Default License</label>
-                <select
-                  value={formData.license}
-                  onChange={(e) => setFormData({ ...formData, license: e.target.value })}
-                  className="w-full px-3 py-2 text-xs bg-muted rounded-lg border border-border focus:outline-none focus:border-primary/50 text-foreground transition-all"
-                >
-                  {["Personal", "Commercial", "Extended"].map((l) => (
-                    <option key={l}>{l}</option>
+                  {[
+                    ["image", "Image"],
+                    ["audio", "Audio"],
+                    ["video", "Video"],
+                    ["text", "Text"],
+                    ["document", "Document"],
+                  ].map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -160,76 +191,33 @@ export function RegisterWorkDialog({ open, onOpenChange }: RegisterWorkDialogPro
           </div>
         )}
 
-        {/* Step 2: Fingerprint */}
+        {/* Step 2: Confirm */}
         {step === 2 && (
           <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-muted/50 border border-border">
-              <div className="flex items-center gap-3 mb-3">
-                <Hash className="h-5 w-5 text-primary" />
-                <div>
-                  <p className="text-xs font-semibold text-foreground">AI Fingerprint Generation</p>
-                  <p className="text-xs text-muted-foreground">Perceptual hash + cryptographic signature</p>
-                </div>
+            <div className="p-4 rounded-xl bg-primary/5 border border-primary/20">
+              <div className="flex items-center gap-2 mb-3">
+                <CheckCircle className="h-5 w-5 text-primary" />
+                <p className="text-sm font-semibold text-foreground">Confirm Upload</p>
               </div>
-              {processing ? (
-                <div className="flex flex-col items-center gap-3 py-4">
-                  <Loader2 className="h-8 w-8 text-primary animate-spin" />
-                  <p className="text-xs text-muted-foreground">Generating cryptographic fingerprint...</p>
-                  <div className="w-full h-1 rounded-full bg-muted overflow-hidden">
-                    <div className="h-full bg-primary rounded-full animate-pulse" style={{ width: "60%" }} />
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2 text-xs text-muted-foreground">
-                  <p>This process will:</p>
-                  <ul className="space-y-1 ml-4">
-                    <li className="flex items-center gap-2"><CheckCircle className="h-3 w-3 text-primary shrink-0" />Generate perceptual hash</li>
-                    <li className="flex items-center gap-2"><CheckCircle className="h-3 w-3 text-primary shrink-0" />Create SHA-256 signature</li>
-                    <li className="flex items-center gap-2"><CheckCircle className="h-3 w-3 text-primary shrink-0" />Timestamp on Polygon</li>
-                  </ul>
-                </div>
-              )}
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between"><span className="text-muted-foreground">Title</span><span className="text-foreground font-medium">{formData.title}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Category</span><span className="text-foreground">{formData.category}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">File</span><span className="text-foreground font-mono">{formData.fileName}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Max Size</span><span className="text-foreground">500MB</span></div>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <button onClick={() => setStep(1)} disabled={processing} className="flex-1 py-2 bg-muted text-muted-foreground text-xs font-medium rounded-lg hover:text-foreground transition-all flex items-center justify-center gap-1 disabled:opacity-40">
                 <ArrowLeft className="h-3.5 w-3.5" /> Back
               </button>
               <button
-                onClick={handleFingerprint}
+                onClick={handleSubmit}
                 disabled={processing}
                 className="flex-1 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                {processing ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Processing...</> : <>Generate <Shield className="h-3.5 w-3.5" /></>}
+                {processing ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Uploading...</> : <>Upload <Upload className="h-3.5 w-3.5" /></>}
               </button>
             </div>
-          </div>
-        )}
-
-        {/* Step 3: Confirm */}
-        {step === 3 && (
-          <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-primary/5 border border-primary/20">
-              <div className="flex items-center gap-2 mb-3">
-                <CheckCircle className="h-5 w-5 text-primary" />
-                <p className="text-sm font-semibold text-foreground">Ready to Register</p>
-              </div>
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between"><span className="text-muted-foreground">Title</span><span className="text-foreground font-medium">{formData.title}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Type</span><span className="text-foreground">{formData.type}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">License</span><span className="text-foreground">{formData.license}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">File</span><span className="text-foreground font-mono">{formData.fileName}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Hash</span><span className="text-foreground font-mono">0x4f3a...8b2c</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Network</span><span className="text-foreground">Polygon (MATIC)</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Gas Fee</span><span className="text-primary font-medium">~$0.02</span></div>
-              </div>
-            </div>
-            <button
-              onClick={handleSubmit}
-              className="w-full py-2.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 transition-all flex items-center justify-center gap-2"
-            >
-              <Shield className="h-3.5 w-3.5" />
-              Register on Blockchain
-            </button>
           </div>
         )}
       </DialogContent>

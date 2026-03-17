@@ -1,7 +1,7 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { WalletConnect } from "@/components/WalletConnect";
 import { Bell, Search } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { ReactNode } from "react";
 
 interface AppLayoutProps {
@@ -40,9 +40,7 @@ export function AppLayout({ children, title, subtitle }: AppLayoutProps) {
                 <Bell className="h-4 w-4" />
                 <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-primary" />
               </button>
-              <div className="h-8 w-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center">
-                <span className="text-xs font-bold text-primary">AK</span>
-              </div>
+              <WalletConnect />
             </div>
           </header>
 

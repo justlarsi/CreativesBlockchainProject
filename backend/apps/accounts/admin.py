@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import User
+from .models import User, Wallet
 
 
 @admin.register(User)
@@ -17,3 +17,12 @@ class CustomUserAdmin(UserAdmin):
     add_fieldsets = UserAdmin.add_fieldsets + (
         ('CreativeChain', {'fields': ('email', 'bio')}),
     )
+
+
+@admin.register(Wallet)
+class WalletAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'address', 'is_primary', 'created_at')
+    list_filter = ('is_primary', 'created_at')
+    search_fields = ('address', 'user__username', 'user__email')
+    ordering = ('-created_at',)
+

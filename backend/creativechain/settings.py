@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     
     # Local apps
     'apps.accounts',
+    'apps.audit_logs',
     'apps.works',
     'apps.marketplace',
     'apps.licensing',
@@ -179,6 +180,11 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+STORAGES = {
+    'default': {
+        'BACKEND': os.getenv('DJANGO_DEFAULT_FILE_STORAGE', 'django.core.files.storage.FileSystemStorage'),
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
@@ -198,6 +204,7 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
     ),
+    'EXCEPTION_HANDLER': 'creativechain.exceptions.creativechain_exception_handler',
     # Simple global throttle (Step 1).
     # TODO [Future Step]: Upgrade to ScopedRateThrottle with tighter per-endpoint
     #      limits for login/register and a relaxed rate for refresh + general API usage.

@@ -72,6 +72,11 @@ coverage/
 logs/
 *.log
 
+# Redis persistence files
+dump.rdb
+*.rdb
+appendonly.aof
+
 # Temporary files
 tmp/
 temp/

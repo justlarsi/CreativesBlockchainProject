@@ -10,6 +10,8 @@ Covers:
   - Token enforcement: protected routes reject missing/invalid/expired tokens
 """
 from django.contrib.auth import get_user_model
+from eth_account import Account
+from eth_account.messages import encode_defunct
 from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -21,6 +23,9 @@ AUTH_LOGIN = '/api/v1/auth/login/'
 AUTH_REFRESH = '/api/v1/auth/refresh/'
 AUTH_LOGOUT = '/api/v1/auth/logout/'
 AUTH_ME = '/api/v1/auth/me/'
+AUTH_WALLETS = '/api/v1/auth/wallets/'
+AUTH_WALLET_CHALLENGE = '/api/v1/auth/wallets/challenge/'
+AUTH_WALLET_VERIFY = '/api/v1/auth/wallets/verify/'
 
 
 def make_user(username='testuser', email='test@example.com', password='Str0ngPass!'):
@@ -299,3 +304,90 @@ class TokenEnforcementTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
         response = self.client.get(AUTH_ME)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class WalletIntegrationTests(APITestCase):
+    def setUp(self):
+        self.user = make_user(username='walletuser', email='wallet@example.com', password='Str0ngPass!')
+        self.auth = auth_header(self.user)
+
+    def _create_signed_challenge(self, account, chain_id=80002):
+        challenge_response = self.client.post(
+            AUTH_WALLET_CHALLENGE,
+            {'address': account.address},
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(challenge_response.status_code, status.HTTP_201_CREATED)
+        message = challenge_response.data['message']
+        signed = Account.sign_message(encode_defunct(text=message), private_key=account.key)
+        verify_payload = {
+            'challenge_id': challenge_response.data['challenge_id'],
+            'signature': signed.signature.hex(),
+            'chain_id': chain_id,
+        }
+        return verify_payload
+
+    def test_wallet_verify_links_wallet_successfully(self):
+        account = Account.create()
+        verify_payload = self._create_signed_challenge(account)
+
+        response = self.client.post(AUTH_WALLET_VERIFY, verify_payload, format='json', **self.auth)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['address'], account.address.lower())
+        self.assertTrue(response.data['is_primary'])
+
+    def test_wallet_verify_rejects_wrong_chain(self):
+        account = Account.create()
+        verify_payload = self._create_signed_challenge(account, chain_id=137)
+
+        response = self.client.post(AUTH_WALLET_VERIFY, verify_payload, format='json', **self.auth)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Polygon Amoy', response.data['detail'])
+
+    def test_wallet_verify_rejects_replayed_challenge(self):
+        account = Account.create()
+        verify_payload = self._create_signed_challenge(account)
+
+        first = self.client.post(AUTH_WALLET_VERIFY, verify_payload, format='json', **self.auth)
+        second = self.client.post(AUTH_WALLET_VERIFY, verify_payload, format='json', **self.auth)
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(second.data['detail'], 'Challenge already used.')
+
+    def test_wallet_disconnect_removes_wallet(self):
+        account = Account.create()
+        verify_payload = self._create_signed_challenge(account)
+        verify = self.client.post(AUTH_WALLET_VERIFY, verify_payload, format='json', **self.auth)
+        wallet_id = verify.data['id']
+
+        response = self.client.delete(f'{AUTH_WALLETS}{wallet_id}/', **self.auth)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        list_response = self.client.get(AUTH_WALLETS, **self.auth)
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_response.data['results']), 0)
+
+    def test_set_primary_wallet_switches_primary(self):
+        first = Account.create()
+        second = Account.create()
+
+        first_payload = self._create_signed_challenge(first)
+        first_verify = self.client.post(AUTH_WALLET_VERIFY, first_payload, format='json', **self.auth)
+
+        second_payload = self._create_signed_challenge(second)
+        second_verify = self.client.post(AUTH_WALLET_VERIFY, second_payload, format='json', **self.auth)
+
+        self.assertTrue(first_verify.data['is_primary'])
+        self.assertFalse(second_verify.data['is_primary'])
+
+        switch = self.client.post(
+            f"{AUTH_WALLETS}{second_verify.data['id']}/set-primary/",
+            {},
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(switch.status_code, status.HTTP_200_OK)
+        self.assertTrue(switch.data['is_primary'])
+

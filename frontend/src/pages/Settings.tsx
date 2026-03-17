@@ -1,7 +1,10 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useState } from "react";
+import { WalletConnect } from "@/components/WalletConnect";
+import { useWallet } from "@/hooks/useWallet";
 import { User, Wallet, Bell, Shield, Globe, Copy, CheckCircle, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
+import { shortenAddress } from "@/blockchain/wallet";
 
 const tabs = [
   { id: "profile", label: "Profile", icon: User },
@@ -26,6 +29,9 @@ export default function Settings() {
     marketing: false,
     weekly: true,
   });
+  const { wallets, isConnected, isCorrectChain, error: walletError } = useWallet();
+
+  const primaryWallet = wallets.find((item) => item.is_primary);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -109,28 +115,42 @@ export default function Settings() {
         {activeTab === "wallet" && (
           <div className="space-y-4">
             <div className="stat-card rounded-xl p-5">
-              <h3 className="font-display font-semibold text-sm mb-4">Connected Wallet</h3>
-              <div className="p-3 rounded-lg bg-muted/50 flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 rounded-lg bg-accent/20 flex items-center justify-center">
-                    <Wallet className="h-4 w-4 text-accent" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-foreground">MetaMask</p>
-                    <p className="text-xs font-mono text-muted-foreground">0x7c1d...5e90...3b2f</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => copyToClipboard("0x7c1d5e903b2f")}
-                  className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h3 className="font-display font-semibold text-sm">Connected Wallet</h3>
+                <WalletConnect />
               </div>
+
+              {primaryWallet ? (
+                <div className="p-3 rounded-lg bg-muted/50 flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-8 w-8 rounded-lg bg-accent/20 flex items-center justify-center">
+                      <Wallet className="h-4 w-4 text-accent" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-foreground">Primary Wallet</p>
+                      <p className="text-xs font-mono text-muted-foreground">{shortenAddress(primaryWallet.address)}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => copyToClipboard(primaryWallet.address)}
+                    className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground mb-4">No verified wallet linked yet.</p>
+              )}
+
               <div className="flex items-center gap-2 p-2.5 rounded-lg bg-primary/5 border border-primary/15">
                 <CheckCircle className="h-3.5 w-3.5 text-primary shrink-0" />
-                <p className="text-xs text-muted-foreground">Wallet verified on Polygon network</p>
+                <p className="text-xs text-muted-foreground">
+                  {isConnected && isCorrectChain
+                    ? "Connected on Polygon Amoy. Use Verify to securely link this wallet."
+                    : "Connect wallet and switch to Polygon Amoy to continue."}
+                </p>
               </div>
+              {walletError && <p className="text-xs text-destructive mt-3">{walletError}</p>}
             </div>
 
             <div className="stat-card rounded-xl p-5">
