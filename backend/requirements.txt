@@ -19,6 +19,9 @@ python-dotenv==1.0.0
 # Wallet signature verification
 eth-account==0.13.7
 
+# Image processing (needed from Step 4 — image perceptual hashing)
+Pillow>=10.4.0
+
 # Notes:
-# - Heavy/optional deps (Pillow/OpenCV/transformers/librosa/web3/reportlab/sendgrid)
-#   are moved to requirements-optional.txt so Django can run on more Python versions quickly.
+# - OpenCV/transformers/librosa/web3/reportlab/sendgrid remain in requirements-optional.txt.
+# - Pillow promoted from optional to core at Step 4.

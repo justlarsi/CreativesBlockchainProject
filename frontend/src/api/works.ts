@@ -1,14 +1,29 @@
+export interface ContentHash {
+  id: number;
+  hash_type: "sha256" | "perceptual_avg" | "text_normalized";
+  hash_value: string;
+  created_at: string;
+}
+
 export interface WorkRecord {
   id: number;
   owner_id: number;
   title: string;
   description: string;
   category: "image" | "audio" | "video" | "text" | "document";
-  status: "PENDING_UPLOAD" | "UPLOADED" | "VALIDATION_FAILED" | "UPLOAD_FAILED";
+  status:
+    | "PENDING_UPLOAD"
+    | "UPLOADED"
+    | "VALIDATION_FAILED"
+    | "UPLOAD_FAILED"
+    | "PROCESSING"
+    | "PROCESSING_COMPLETE"
+    | "PROCESSING_FAILED";
   original_filename: string;
   file_size: number | null;
   mime_type: string;
   file: string | null;
+  content_hashes: ContentHash[];
   created_at: string;
   updated_at: string;
 }

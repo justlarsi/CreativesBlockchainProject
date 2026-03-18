@@ -90,6 +90,10 @@ class CreativeWorkUploadView(generics.UpdateAPIView):
                         'category': work.category,
                     },
                 )
+
+                # Dispatch hashing task after commit so the file is persisted first.
+                from .tasks import hash_work_task
+                transaction.on_commit(lambda: hash_work_task.delay(work.id))
         except Exception as exc:
             work.status = CreativeWork.Status.UPLOAD_FAILED
             work.save(update_fields=['status', 'updated_at'])

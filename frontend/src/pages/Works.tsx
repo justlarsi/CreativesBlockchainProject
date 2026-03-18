@@ -24,7 +24,12 @@ function getAccessToken(): string {
 }
 
 function mapWorkToCard(work: WorkRecord) {
-  const status = work.status === "UPLOADED" ? "verified" : work.status === "VALIDATION_FAILED" || work.status === "UPLOAD_FAILED" ? "flagged" : "pending";
+  const status =
+    work.status === "UPLOADED" || work.status === "PROCESSING_COMPLETE"
+      ? "verified"
+      : work.status === "VALIDATION_FAILED" || work.status === "UPLOAD_FAILED" || work.status === "PROCESSING_FAILED"
+      ? "flagged"
+      : "pending";
   const categoryLabel =
     work.category === "image"
       ? "Illustration"
