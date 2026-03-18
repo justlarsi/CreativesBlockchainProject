@@ -26,6 +26,7 @@ class CreativeWorkSerializer(serializers.ModelSerializer):
             'original_filename',
             'file_size',
             'mime_type',
+            'ipfs_metadata_cid',
             'file',
             'content_hashes',
             'created_at',
@@ -33,7 +34,8 @@ class CreativeWorkSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'owner_id', 'status', 'original_filename', 'file_size',
-            'mime_type', 'file', 'content_hashes', 'created_at', 'updated_at',
+            'mime_type', 'ipfs_metadata_cid',
+            'file', 'content_hashes', 'created_at', 'updated_at',
         ]
 
 

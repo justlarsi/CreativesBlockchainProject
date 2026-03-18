@@ -9,7 +9,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.audit_logs.models import AuditLog
 
 from .models import ContentHash, CreativeWork
-from .tasks import hash_work_task
+from .tasks import hash_work_task, pin_work_metadata_task
 
 User = get_user_model()
 
@@ -144,6 +144,9 @@ def _minimal_png_bytes() -> bytes:
 class HashTaskTests(APITestCase):
     def setUp(self):
         self.user = make_user(username='hasher', email='hasher@example.com')
+        self.pin_dispatch_patcher = patch('apps.works.tasks.pin_work_metadata_task.delay')
+        self.mock_pin_dispatch = self.pin_dispatch_patcher.start()
+        self.addCleanup(self.pin_dispatch_patcher.stop)
 
     def _make_uploaded_work(self, category=CreativeWork.Category.IMAGE, raw=None):
         """Create a work with an in-memory file already attached."""
@@ -226,6 +229,108 @@ class HashTaskTests(APITestCase):
     def test_hash_task_returns_not_found_for_missing_work(self):
         result = hash_work_task(999999)
         self.assertEqual(result['status'], 'not_found')
+
+    def test_hash_task_dispatches_ipfs_pinning_after_success(self):
+        work = self._make_uploaded_work()
+        hash_work_task(work.id)
+        self.mock_pin_dispatch.assert_called_once_with(work.id)
+
+
+class IPFSPinningTaskTests(APITestCase):
+    def setUp(self):
+        self.user = make_user(username='pinner', email='pinner@example.com')
+        self.pin_dispatch_patcher = patch('apps.works.tasks.pin_work_metadata_task.delay')
+        self.pin_dispatch_patcher.start()
+        self.addCleanup(self.pin_dispatch_patcher.stop)
+
+    def _make_processed_work(self, category=CreativeWork.Category.IMAGE, raw=None):
+        from django.core.files.base import ContentFile
+
+        work = CreativeWork.objects.create(
+            owner=self.user,
+            title='IPFS Test Work',
+            description='Pin me',
+            category=category,
+            status=CreativeWork.Status.UPLOADED,
+            mime_type='image/png',
+            file_size=68,
+        )
+        content = raw if raw is not None else _minimal_png_bytes()
+        work.file.save('test.png', ContentFile(content), save=True)
+        hash_work_task(work.id)
+        work.refresh_from_db()
+        self.assertEqual(work.status, CreativeWork.Status.PROCESSING_COMPLETE)
+        return work
+
+    @patch('apps.works.services_ipfs.PinataClient.pin_json', return_value='bafy-step5-cid')
+    def test_pin_task_persists_cid_and_sets_explicit_success_status(self, mock_pin_json):
+        work = self._make_processed_work()
+
+        result = pin_work_metadata_task(work.id)
+
+        self.assertEqual(result['status'], 'ok')
+        work.refresh_from_db()
+        self.assertEqual(work.status, CreativeWork.Status.IPFS_PINNING_COMPLETE)
+        self.assertEqual(work.ipfs_metadata_cid, 'bafy-step5-cid')
+        self.assertIsNotNone(work.ipfs_pinned_at)
+        self.assertEqual(work.ipfs_error_message, '')
+        mock_pin_json.assert_called_once()
+
+    @patch('apps.works.services_ipfs.PinataClient.pin_json', return_value='bafy-schema-cid')
+    def test_pin_task_payload_contains_web3_style_and_required_fields(self, mock_pin_json):
+        work = self._make_processed_work()
+
+        pin_work_metadata_task(work.id)
+
+        args, kwargs = mock_pin_json.call_args
+        payload = args[0]
+        self.assertEqual(payload['name'], work.title)
+        self.assertEqual(payload['description'], work.description)
+        self.assertIn('attributes', payload)
+        self.assertIn('properties', payload)
+
+        properties = payload['properties']
+        self.assertEqual(properties['work_id'], work.id)
+        self.assertEqual(properties['owner_id'], work.owner_id)
+        self.assertEqual(properties['title'], work.title)
+        self.assertEqual(properties['description'], work.description)
+        self.assertEqual(properties['category'], work.category)
+        self.assertEqual(properties['mime_type'], work.mime_type)
+        self.assertEqual(properties['file_size'], work.file_size)
+        self.assertIn('created_at', properties)
+        self.assertIn('content_hashes', properties)
+        self.assertIn(ContentHash.HashType.SHA256, properties['content_hashes'])
+        self.assertEqual(kwargs['metadata_name'], f'creative-work-{work.id}-metadata')
+
+    @patch('apps.works.services_ipfs.PinataClient.pin_json', side_effect=Exception('unexpected'))
+    def test_pin_task_marks_failed_after_retry_exhaustion(self, mock_pin_json):
+        work = self._make_processed_work()
+
+        with patch.object(pin_work_metadata_task, 'max_retries', 0):
+            result = pin_work_metadata_task(work.id)
+
+        self.assertEqual(result['status'], 'failed')
+        work.refresh_from_db()
+        self.assertEqual(work.status, CreativeWork.Status.IPFS_PINNING_FAILED)
+        self.assertIn('unexpected', work.ipfs_error_message)
+        mock_pin_json.assert_called_once()
+
+    @patch('apps.works.services_ipfs.PinataClient.pin_json', side_effect=Exception('temporary pinata outage'))
+    def test_pin_task_retries_before_exhaustion(self, _mock_pin_json):
+        work = self._make_processed_work()
+        # Before exhaustion, Celery retries — expect an exception that wraps the retry
+        with self.assertRaises(Exception):
+            pin_work_metadata_task(work.id)
+
+    @patch('apps.works.services_ipfs.PinataClient.pin_json', return_value='bafy-visible-cid')
+    def test_cid_is_exposed_in_serializer_response(self, _mock_pin_json):
+        work = self._make_processed_work()
+        pin_work_metadata_task(work.id)
+
+        response = self.client.get(f'{WORKS_BASE}{work.id}/', **auth_header(self.user))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('ipfs_metadata_cid', response.data)
+        self.assertEqual(response.data['ipfs_metadata_cid'], 'bafy-visible-cid')
 
 
 class HashTaskDispatchTests(APITestCase):

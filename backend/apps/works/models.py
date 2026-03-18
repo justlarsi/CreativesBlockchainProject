@@ -19,6 +19,9 @@ class CreativeWork(models.Model):
         PROCESSING = 'PROCESSING', 'Processing'
         PROCESSING_COMPLETE = 'PROCESSING_COMPLETE', 'Processing complete'
         PROCESSING_FAILED = 'PROCESSING_FAILED', 'Processing failed'
+        # Step 5 statuses
+        IPFS_PINNING_COMPLETE = 'IPFS_PINNING_COMPLETE', 'IPFS pinning complete'
+        IPFS_PINNING_FAILED = 'IPFS_PINNING_FAILED', 'IPFS pinning failed'
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='creative_works')
     title = models.CharField(max_length=255)
@@ -30,6 +33,9 @@ class CreativeWork(models.Model):
     original_filename = models.CharField(max_length=255, blank=True, default='')
     file_size = models.BigIntegerField(null=True, blank=True)
     mime_type = models.CharField(max_length=100, blank=True, default='')
+    ipfs_metadata_cid = models.CharField(max_length=255, blank=True, default='')
+    ipfs_pinned_at = models.DateTimeField(null=True, blank=True)
+    ipfs_error_message = models.TextField(blank=True, default='')
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

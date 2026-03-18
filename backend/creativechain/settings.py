@@ -252,6 +252,13 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
+# Celery Redis SSL Configuration (for Upstash/managed Redis services)
+# Automatically detect if using SSL (rediss://) and configure accordingly
+if CELERY_BROKER_URL.startswith('rediss://'):
+    CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+    CELERY_BROKER_CONNECTION_RETRY = True
+    CELERY_BROKER_CONNECTION_MAX_RETRIES = 10
+
 # Blockchain Configuration
 POLYGON_AMOY_RPC_URL = os.getenv('POLYGON_AMOY_RPC_URL', os.getenv('POLYGON_MUMBAI_RPC_URL', ''))
 CONTRACT_IP_REGISTRY_ADDRESS = os.getenv('CONTRACT_IP_REGISTRY_ADDRESS', '')
