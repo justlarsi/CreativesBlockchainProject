@@ -33,16 +33,21 @@ contract LicenseAgreement {
      * @param contentHash The hash of the creative work
      * @param expiresAt The expiration timestamp (0 for perpetual)
      */
-    function purchaseLicense(string memory contentHash, uint256 expiresAt)
+    function purchaseLicense(
+        address licensor,
+        string memory contentHash,
+        uint256 expiresAt
+    )
         external
         payable
     {
+        require(licensor != address(0), "Licensor cannot be zero address");
         require(bytes(contentHash).length > 0, "Content hash cannot be empty");
         require(msg.value > 0, "Payment required");
 
         licenseCounter++;
         licenses[licenseCounter] = License({
-            licensor: msg.sender, // In production, this should come from IPRegistry
+            licensor: licensor,
             licensee: msg.sender,
             contentHash: contentHash,
             price: msg.value,
@@ -56,7 +61,7 @@ contract LicenseAgreement {
 
         emit LicensePurchased(
             licenseCounter,
-            licenses[licenseCounter].licensor,
+            licensor,
             msg.sender,
             contentHash,
             msg.value,

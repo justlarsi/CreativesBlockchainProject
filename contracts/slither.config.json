@@ -1,0 +1,11 @@
+{
+  "filter_paths": "node_modules",
+  "exclude": [
+    "naming-convention",
+    "pragma"
+  ],
+  "solc_remaps": [
+    "@openzeppelin=node_modules/@openzeppelin"
+  ]
+}
+

@@ -25,3 +25,4 @@ Pillow>=10.4.0
 # Notes:
 # - OpenCV/transformers/librosa/web3/reportlab/sendgrid remain in requirements-optional.txt.
 # - Pillow promoted from optional to core at Step 4.
+slither-analyzer==0.11.5
