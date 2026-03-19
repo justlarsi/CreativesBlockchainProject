@@ -18,14 +18,37 @@ export interface WorkRecord {
     | "UPLOAD_FAILED"
     | "PROCESSING"
     | "PROCESSING_COMPLETE"
-    | "PROCESSING_FAILED";
+    | "PROCESSING_FAILED"
+    | "IPFS_PINNING_COMPLETE"
+    | "IPFS_PINNING_FAILED"
+    | "BLOCKCHAIN_REGISTRATION_PENDING"
+    | "BLOCKCHAIN_REGISTRATION_FAILED"
+    | "REGISTERED";
   original_filename: string;
   file_size: number | null;
   mime_type: string;
+  ipfs_metadata_cid: string;
+  blockchain_tx_hash: string;
+  blockchain_block_number: number | null;
+  blockchain_registration_timestamp: string | null;
+  blockchain_error_message: string;
   file: string | null;
   content_hashes: ContentHash[];
   created_at: string;
   updated_at: string;
+}
+
+export interface BlockchainTxPayload {
+  to: string;
+  data: string;
+}
+
+export interface BlockchainReceiptQueuedResponse {
+  status: "BLOCKCHAIN_REGISTRATION_PENDING";
+  tx_hash: string;
+  explorer_url: string;
+  message: string;
+  max_retries: number;
 }
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
@@ -94,6 +117,31 @@ export async function uploadWorkBinary(accessToken: string, workId: number, file
       Authorization: `Bearer ${accessToken}`,
     },
     body,
+  });
+  return parseJsonOrThrow(response);
+}
+
+export async function prepareBlockchainRegistration(
+  accessToken: string,
+  workId: number,
+): Promise<BlockchainTxPayload> {
+  const response = await fetch(`${apiBase}/api/v1/works/${workId}/register-blockchain/prepare/`, {
+    method: "POST",
+    headers: getAuthHeaders(accessToken),
+    body: JSON.stringify({}),
+  });
+  return parseJsonOrThrow(response);
+}
+
+export async function submitBlockchainReceipt(
+  accessToken: string,
+  workId: number,
+  txHash: string,
+): Promise<BlockchainReceiptQueuedResponse> {
+  const response = await fetch(`${apiBase}/api/v1/works/${workId}/register-blockchain/receipt/`, {
+    method: "POST",
+    headers: getAuthHeaders(accessToken),
+    body: JSON.stringify({ tx_hash: txHash }),
   });
   return parseJsonOrThrow(response);
 }

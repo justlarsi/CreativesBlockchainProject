@@ -1,6 +1,7 @@
 import hashlib
 import io
 
+from django.conf import settings
 from django.utils import timezone
 
 from celery import shared_task
@@ -91,9 +92,9 @@ def hash_work_task(self, work_id: int) -> dict:
     Async task to compute and persist content hashes for a creative work.
 
     Lifecycle:
-      UPLOADED → PROCESSING → PROCESSING_COMPLETE → IPFS_PINNING_COMPLETE
-                            → PROCESSING_FAILED      (on unrecoverable hash error)
-                                                 \-> IPFS_PINNING_FAILED (on unrecoverable pinning error)
+      UPLOADED -> PROCESSING -> PROCESSING_COMPLETE -> IPFS_PINNING_COMPLETE
+                            -> PROCESSING_FAILED      (on unrecoverable hash error)
+                                                 -> IPFS_PINNING_FAILED (on unrecoverable pinning error)
 
     Hash types computed:
       - sha256            : always (all categories)
@@ -223,5 +224,100 @@ def pin_work_metadata_task(self, work_id: int) -> dict:
 
     logger.info('pin_work_metadata_task: work %s pinned cid=%s', work_id, cid)
     return {'status': 'ok', 'work_id': work_id, 'ipfs_metadata_cid': cid}
+
+
+@shared_task(
+    name='works.verify_work_registration_receipt',
+    bind=True,
+    max_retries=getattr(settings, 'BLOCKCHAIN_RECEIPT_MAX_RETRIES', 8),
+    retry_backoff=True,
+    retry_backoff_max=120,
+)
+def verify_work_registration_receipt_task(self, work_id: int, tx_hash: str) -> dict:
+    """Verify blockchain receipt asynchronously and update authoritative work state."""
+    from apps.audit_logs.models import AuditLog
+
+    from .models import CreativeWork
+    from .services_blockchain import (
+        BlockchainVerificationError,
+        ReceiptPendingError,
+        mark_registration_confirmed,
+        mark_registration_failed,
+        tx_explorer_url,
+        verify_registration_receipt,
+    )
+
+    try:
+        work = CreativeWork.objects.get(id=work_id)
+    except CreativeWork.DoesNotExist:
+        logger.error('verify_work_registration_receipt_task: work %s not found', work_id)
+        return {'status': 'not_found', 'work_id': work_id}
+
+    if work.status == CreativeWork.Status.REGISTERED:
+        return {'status': 'already_registered', 'work_id': work_id, 'tx_hash': work.blockchain_tx_hash}
+
+    if work.status != CreativeWork.Status.BLOCKCHAIN_REGISTRATION_PENDING:
+        return {'status': 'skipped', 'work_id': work_id, 'current_status': work.status}
+
+    try:
+        verification = verify_registration_receipt(work, tx_hash)
+    except ReceiptPendingError as exc:
+        if self.request.retries >= self.max_retries:
+            message = 'Transaction receipt not confirmed before timeout.'
+            mark_registration_failed(work, message)
+            AuditLog.objects.create(
+                user=work.owner,
+                action='work_blockchain_registration_failed',
+                entity_type='creative_work',
+                entity_id=str(work.id),
+                metadata={'tx_hash': tx_hash, 'reason': message, 'explorer_url': tx_explorer_url(tx_hash)},
+            )
+            return {'status': 'failed', 'work_id': work.id, 'reason': message}
+        raise self.retry(exc=exc)
+    except BlockchainVerificationError as exc:
+        message = str(exc)
+        mark_registration_failed(work, message)
+        AuditLog.objects.create(
+            user=work.owner,
+            action='work_blockchain_registration_failed',
+            entity_type='creative_work',
+            entity_id=str(work.id),
+            metadata={'tx_hash': tx_hash, 'reason': message, 'explorer_url': tx_explorer_url(tx_hash)},
+        )
+        return {'status': 'failed', 'work_id': work.id, 'reason': message}
+    except Exception as exc:
+        if self.request.retries >= self.max_retries:
+            message = f'Blockchain verification failed: {exc}'
+            mark_registration_failed(work, message)
+            AuditLog.objects.create(
+                user=work.owner,
+                action='work_blockchain_registration_failed',
+                entity_type='creative_work',
+                entity_id=str(work.id),
+                metadata={'tx_hash': tx_hash, 'reason': message, 'explorer_url': tx_explorer_url(tx_hash)},
+            )
+            return {'status': 'failed', 'work_id': work.id, 'reason': message}
+        raise self.retry(exc=exc)
+
+    mark_registration_confirmed(work, verification)
+    AuditLog.objects.create(
+        user=work.owner,
+        action='work_blockchain_registered',
+        entity_type='creative_work',
+        entity_id=str(work.id),
+        metadata={
+            'tx_hash': verification['tx_hash'],
+            'block_number': verification['block_number'],
+            'registered_at': verification['registration_timestamp'].isoformat(),
+            'explorer_url': verification['explorer_url'],
+        },
+    )
+    logger.info('verify_work_registration_receipt_task: work %s registered tx=%s', work_id, tx_hash)
+    return {
+        'status': 'ok',
+        'work_id': work.id,
+        'tx_hash': verification['tx_hash'],
+        'block_number': verification['block_number'],
+    }
 
 

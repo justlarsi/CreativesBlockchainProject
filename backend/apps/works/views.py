@@ -2,6 +2,7 @@
 Creative works management views
 """
 from django.db import transaction
+from django.conf import settings
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -12,11 +13,18 @@ from apps.audit_logs.models import AuditLog
 
 from .models import CreativeWork
 from .serializers import (
+    BlockchainReceiptSubmissionSerializer,
     CreativeWorkMetadataCreateSerializer,
     CreativeWorkSerializer,
     CreativeWorkUploadSerializer,
 )
 from .services import validate_upload_or_raise
+from .services_blockchain import (
+    BlockchainPreparationError,
+    prepare_registration_payload,
+    set_registration_pending,
+    tx_explorer_url,
+)
 
 
 class CreativeWorkListCreateView(generics.ListCreateAPIView):
@@ -102,11 +110,55 @@ class CreativeWorkUploadView(generics.UpdateAPIView):
         return Response(CreativeWorkSerializer(work).data, status=status.HTTP_200_OK)
 
 
-class RegisterBlockchainView(generics.CreateAPIView):
-    """Register work on blockchain"""
+class RegisterBlockchainPrepareView(generics.GenericAPIView):
+    """Prepare calldata for wallet signing/submission."""
     permission_classes = [IsAuthenticated]
-    
+    serializer_class = CreativeWorkSerializer
+
+    def get_queryset(self):
+        return CreativeWork.objects.filter(owner=self.request.user)
+
     def post(self, request, *args, **kwargs):
-        # TODO: Implement blockchain registration
-        return Response({"message": "Blockchain registration endpoint - to be implemented"}, 
-                       status=status.HTTP_501_NOT_IMPLEMENTED)
+        work = self.get_object()
+        try:
+            payload = prepare_registration_payload(work)
+        except BlockchainPreparationError as exc:
+            raise ValidationError({'detail': str(exc)})
+
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class RegisterBlockchainReceiptView(generics.GenericAPIView):
+    """Accept tx hash and enqueue asynchronous receipt verification."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = BlockchainReceiptSubmissionSerializer
+
+    def get_queryset(self):
+        return CreativeWork.objects.filter(owner=self.request.user)
+
+    def post(self, request, *args, **kwargs):
+        work = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        if work.status == CreativeWork.Status.REGISTERED:
+            raise ValidationError({'detail': 'Work is already registered on-chain.'})
+
+        tx_hash = serializer.validated_data['tx_hash']
+        set_registration_pending(work, tx_hash)
+
+        from .tasks import verify_work_registration_receipt_task
+
+        transaction.on_commit(lambda: verify_work_registration_receipt_task.delay(work.id, tx_hash))
+
+        return Response(
+            {
+                'status': CreativeWork.Status.BLOCKCHAIN_REGISTRATION_PENDING,
+                'tx_hash': tx_hash,
+                'explorer_url': tx_explorer_url(tx_hash),
+                'message': 'Receipt verification queued.',
+                'max_retries': settings.BLOCKCHAIN_RECEIPT_MAX_RETRIES,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )

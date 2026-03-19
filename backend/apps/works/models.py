@@ -22,6 +22,10 @@ class CreativeWork(models.Model):
         # Step 5 statuses
         IPFS_PINNING_COMPLETE = 'IPFS_PINNING_COMPLETE', 'IPFS pinning complete'
         IPFS_PINNING_FAILED = 'IPFS_PINNING_FAILED', 'IPFS pinning failed'
+        # Step 7 statuses
+        BLOCKCHAIN_REGISTRATION_PENDING = 'BLOCKCHAIN_REGISTRATION_PENDING', 'Blockchain registration pending'
+        REGISTERED = 'REGISTERED', 'Registered'
+        BLOCKCHAIN_REGISTRATION_FAILED = 'BLOCKCHAIN_REGISTRATION_FAILED', 'Blockchain registration failed'
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='creative_works')
     title = models.CharField(max_length=255)
@@ -36,6 +40,11 @@ class CreativeWork(models.Model):
     ipfs_metadata_cid = models.CharField(max_length=255, blank=True, default='')
     ipfs_pinned_at = models.DateTimeField(null=True, blank=True)
     ipfs_error_message = models.TextField(blank=True, default='')
+
+    blockchain_tx_hash = models.CharField(max_length=66, blank=True, default='')
+    blockchain_block_number = models.BigIntegerField(null=True, blank=True)
+    blockchain_registration_timestamp = models.DateTimeField(null=True, blank=True)
+    blockchain_error_message = models.TextField(blank=True, default='')
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

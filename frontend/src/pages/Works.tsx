@@ -1,9 +1,10 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Search, Grid, List, Shield, Eye, MoreHorizontal, Hash, Clock } from "lucide-react";
+import { Plus, Search, Grid, List, Shield, Eye, MoreHorizontal, Hash, Clock, Loader2 } from "lucide-react";
 import { RegisterWorkDialog } from "@/components/RegisterWorkDialog";
 import { toast } from "sonner";
 import { WorkRecord, listWorks } from "@/api/works";
+import { useRegisterWorkOnChain } from "@/hooks/useRegisterWorkOnChain";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +15,7 @@ import {
 const statusConfig = {
   verified: { label: "Verified", class: "badge-verified" },
   pending: { label: "Pending", class: "badge-pending" },
+  queued: { label: "On-chain Pending", class: "badge-pending" },
   flagged: { label: "Infringement", class: "badge-flagged" },
 };
 
@@ -25,9 +27,15 @@ function getAccessToken(): string {
 
 function mapWorkToCard(work: WorkRecord) {
   const status =
-    work.status === "UPLOADED" || work.status === "PROCESSING_COMPLETE"
+    work.status === "REGISTERED"
       ? "verified"
-      : work.status === "VALIDATION_FAILED" || work.status === "UPLOAD_FAILED" || work.status === "PROCESSING_FAILED"
+      : work.status === "BLOCKCHAIN_REGISTRATION_PENDING"
+      ? "queued"
+      : work.status === "VALIDATION_FAILED" ||
+        work.status === "UPLOAD_FAILED" ||
+        work.status === "PROCESSING_FAILED" ||
+        work.status === "IPFS_PINNING_FAILED" ||
+        work.status === "BLOCKCHAIN_REGISTRATION_FAILED"
       ? "flagged"
       : "pending";
   const categoryLabel =
@@ -42,6 +50,7 @@ function mapWorkToCard(work: WorkRecord) {
       : "Document";
 
   return {
+    workId: work.id,
     id: `CW-${work.id}`,
     title: work.title,
     type: categoryLabel,
@@ -50,6 +59,11 @@ function mapWorkToCard(work: WorkRecord) {
     hash: work.mime_type || "Pending upload",
     licenses: 0,
     views: 0,
+    canRegisterOnChain: work.status === "IPFS_PINNING_COMPLETE" || work.status === "BLOCKCHAIN_REGISTRATION_FAILED",
+    isRegisteredOnChain: work.status === "REGISTERED",
+    txHash: work.blockchain_tx_hash,
+    blockNumber: work.blockchain_block_number,
+    chainError: work.blockchain_error_message,
     color: "bg-primary/10",
     emoji: work.category === "audio" ? "🎵" : work.category === "video" ? "🎬" : work.category === "text" ? "✍️" : work.category === "document" ? "📄" : "🎨",
   };
@@ -61,6 +75,8 @@ export default function Works() {
   const [search, setSearch] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
   const [works, setWorks] = useState<WorkRecord[]>([]);
+  const [registeringWorkId, setRegisteringWorkId] = useState<number | null>(null);
+  const { registerWorkOnChain } = useRegisterWorkOnChain();
 
   const refreshWorks = async () => {
     const token = getAccessToken();
@@ -81,6 +97,21 @@ export default function Works() {
   }, []);
 
   const cards = useMemo(() => works.map(mapWorkToCard), [works]);
+
+  const handleRegisterOnChain = async (workId: number) => {
+    setRegisteringWorkId(workId);
+    try {
+      const result = await registerWorkOnChain(workId);
+      toast.success("Transaction submitted. Receipt verification is running asynchronously.", {
+        description: result.explorer_url,
+      });
+      await refreshWorks();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Blockchain registration failed.");
+    } finally {
+      setRegisteringWorkId(null);
+    }
+  };
 
   const filtered = cards.filter((w) => {
     const matchesFilter = filter === "all" || w.type.toLowerCase() === filter || w.status === filter;
@@ -163,6 +194,15 @@ export default function Works() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="bg-card border-border text-xs">
                           <DropdownMenuItem onClick={() => toast.info("Work details view coming soon")} className="text-xs">View Details</DropdownMenuItem>
+                          {work.canRegisterOnChain && (
+                            <DropdownMenuItem
+                              onClick={() => void handleRegisterOnChain(work.workId)}
+                              disabled={registeringWorkId === work.workId}
+                              className="text-xs"
+                            >
+                              {registeringWorkId === work.workId ? "Submitting on-chain..." : "Register on Blockchain"}
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem onClick={() => toast.info("Edit metadata coming soon")} className="text-xs">Edit Metadata</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => toast.success("Link copied to clipboard")} className="text-xs">Share Link</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => toast.info("Certificate download coming soon")} className="text-xs">Download Certificate</DropdownMenuItem>
@@ -175,13 +215,21 @@ export default function Works() {
                     </div>
                     <div className="flex items-center gap-1 mb-3 px-2 py-1.5 rounded-md bg-muted/50">
                       <Hash className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-                      <span className="text-xs font-mono text-muted-foreground truncate">{work.hash}</span>
+                      <span className="text-xs font-mono text-muted-foreground truncate">
+                        {work.txHash ? `${work.txHash.slice(0, 10)}...` : work.hash}
+                      </span>
                     </div>
+                    {work.chainError && (
+                      <p className="text-xs text-red-400 mb-2 truncate" title={work.chainError}>
+                        {work.chainError}
+                      </p>
+                    )}
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <div className="flex items-center gap-3">
-                        <span className="flex items-center gap-1"><Shield className="h-2.5 w-2.5 text-primary" />{work.licenses}</span>
+                        <span className="flex items-center gap-1"><Shield className="h-2.5 w-2.5 text-primary" />{work.blockNumber || work.licenses}</span>
                         <span className="flex items-center gap-1"><Eye className="h-2.5 w-2.5" />{work.views}</span>
                       </div>
+                      {registeringWorkId === work.workId && <Loader2 className="h-3 w-3 animate-spin" />}
                       <span className="flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{work.registered}</span>
                     </div>
                   </div>
@@ -207,7 +255,7 @@ export default function Works() {
                   </div>
                   <span className="text-xs text-muted-foreground">{work.type}</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full w-fit ${status.class}`}>{status.label}</span>
-                  <span className="text-xs text-foreground">{work.licenses}</span>
+                  <span className="text-xs text-foreground">{work.blockNumber || work.licenses}</span>
                   <span className="text-xs text-muted-foreground">{work.registered}</span>
                 </div>
               );

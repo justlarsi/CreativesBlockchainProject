@@ -1,4 +1,5 @@
 from unittest.mock import patch
+from datetime import datetime, timezone as dt_timezone
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -9,7 +10,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.audit_logs.models import AuditLog
 
 from .models import ContentHash, CreativeWork
-from .tasks import hash_work_task, pin_work_metadata_task
+from .tasks import hash_work_task, pin_work_metadata_task, verify_work_registration_receipt_task
 
 User = get_user_model()
 
@@ -366,6 +367,94 @@ class HashTaskDispatchTests(APITestCase):
             **auth_header(self.user),
         )
         mock_delay.assert_not_called()
+
+
+class BlockchainRegistrationFlowTests(APITestCase):
+    def setUp(self):
+        self.user = make_user(username='chainuser', email='chain@example.com')
+        self.work = CreativeWork.objects.create(
+            owner=self.user,
+            title='On-chain Work',
+            category=CreativeWork.Category.IMAGE,
+            status=CreativeWork.Status.IPFS_PINNING_COMPLETE,
+            ipfs_metadata_cid='bafy-step5',
+        )
+        ContentHash.objects.create(
+            work=self.work,
+            hash_type=ContentHash.HashType.SHA256,
+            hash_value='a' * 64,
+        )
+
+    @patch('apps.works.services_blockchain._contract_address', return_value='0xbf559FA83ecB20f65030CF1265E2E65a12d67be3')
+    def test_prepare_endpoint_returns_to_and_data(self, _mock_address):
+        response = self.client.post(
+            f'{WORKS_BASE}{self.work.id}/register-blockchain/prepare/',
+            {},
+            format='json',
+            **auth_header(self.user),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('to', response.data)
+        self.assertIn('data', response.data)
+        self.assertTrue(response.data['data'].startswith('0x'))
+
+    @patch('apps.works.tasks.verify_work_registration_receipt_task.delay')
+    def test_receipt_endpoint_returns_202_and_queues_task(self, mock_delay):
+        tx_hash = '0x' + 'b' * 64
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f'{WORKS_BASE}{self.work.id}/register-blockchain/receipt/',
+                {'tx_hash': tx_hash},
+                format='json',
+                **auth_header(self.user),
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.data['status'], CreativeWork.Status.BLOCKCHAIN_REGISTRATION_PENDING)
+        self.assertEqual(response.data['tx_hash'], tx_hash)
+        self.work.refresh_from_db()
+        self.assertEqual(self.work.status, CreativeWork.Status.BLOCKCHAIN_REGISTRATION_PENDING)
+        self.assertEqual(self.work.blockchain_tx_hash, tx_hash)
+        mock_delay.assert_called_once_with(self.work.id, tx_hash)
+
+    @patch('apps.works.services_blockchain.verify_registration_receipt')
+    def test_receipt_task_marks_work_registered(self, mock_verify):
+        tx_hash = '0x' + 'c' * 64
+        self.work.status = CreativeWork.Status.BLOCKCHAIN_REGISTRATION_PENDING
+        self.work.blockchain_tx_hash = tx_hash
+        self.work.save(update_fields=['status', 'blockchain_tx_hash', 'updated_at'])
+
+        mock_verify.return_value = {
+            'tx_hash': tx_hash,
+            'block_number': 123,
+            'registration_timestamp': datetime(2026, 3, 19, 12, 0, tzinfo=dt_timezone.utc),
+            'explorer_url': f'https://amoy.polygonscan.com/tx/{tx_hash}',
+        }
+
+        result = verify_work_registration_receipt_task(self.work.id, tx_hash)
+
+        self.assertEqual(result['status'], 'ok')
+        self.work.refresh_from_db()
+        self.assertEqual(self.work.status, CreativeWork.Status.REGISTERED)
+        self.assertEqual(self.work.blockchain_block_number, 123)
+
+    @patch('apps.works.services_blockchain.verify_registration_receipt')
+    def test_receipt_task_marks_failed_after_timeout(self, mock_verify):
+        from .services_blockchain import ReceiptPendingError
+
+        tx_hash = '0x' + 'd' * 64
+        self.work.status = CreativeWork.Status.BLOCKCHAIN_REGISTRATION_PENDING
+        self.work.blockchain_tx_hash = tx_hash
+        self.work.save(update_fields=['status', 'blockchain_tx_hash', 'updated_at'])
+
+        mock_verify.side_effect = ReceiptPendingError('still pending')
+
+        with patch.object(verify_work_registration_receipt_task, 'max_retries', 0):
+            result = verify_work_registration_receipt_task(self.work.id, tx_hash)
+
+        self.assertEqual(result['status'], 'failed')
+        self.work.refresh_from_db()
+        self.assertEqual(self.work.status, CreativeWork.Status.BLOCKCHAIN_REGISTRATION_FAILED)
 
 
 

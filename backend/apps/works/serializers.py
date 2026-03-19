@@ -27,6 +27,10 @@ class CreativeWorkSerializer(serializers.ModelSerializer):
             'file_size',
             'mime_type',
             'ipfs_metadata_cid',
+            'blockchain_tx_hash',
+            'blockchain_block_number',
+            'blockchain_registration_timestamp',
+            'blockchain_error_message',
             'file',
             'content_hashes',
             'created_at',
@@ -35,6 +39,8 @@ class CreativeWorkSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id', 'owner_id', 'status', 'original_filename', 'file_size',
             'mime_type', 'ipfs_metadata_cid',
+            'blockchain_tx_hash', 'blockchain_block_number',
+            'blockchain_registration_timestamp', 'blockchain_error_message',
             'file', 'content_hashes', 'created_at', 'updated_at',
         ]
 
@@ -48,4 +54,12 @@ class CreativeWorkMetadataCreateSerializer(serializers.ModelSerializer):
 
 class CreativeWorkUploadSerializer(serializers.Serializer):
     file = serializers.FileField(required=True)
+
+
+class BlockchainReceiptSubmissionSerializer(serializers.Serializer):
+    tx_hash = serializers.RegexField(
+        regex=r'^0x[a-fA-F0-9]{64}$',
+        error_messages={'invalid': 'tx_hash must be a 0x-prefixed 32-byte transaction hash.'},
+    )
+
 
