@@ -15,11 +15,11 @@ CreativeChain addresses the critical $225-600 billion annual loss to IP theft by
 
 ### Frontend
 - **Framework**: React 18.2+ with TypeScript 5+
-- **Build Tool**: Vite 4+
+- **Build Tool**: Vite 5+
 - **Routing**: React Router v6
 - **Styling**: TailwindCSS 3+
-- **Blockchain**: Web3.js 4+ for MetaMask integration
-- **HTTP Client**: Axios
+- **Blockchain**: Wagmi + Viem (MetaMask + WalletConnect support)
+- **HTTP Client**: Fetch API wrappers in `frontend/src/api/*`
 - **Forms**: React Hook Form
 
 ### Backend
@@ -31,7 +31,7 @@ CreativeChain addresses the critical $225-600 billion annual loss to IP theft by
 - **Blockchain**: Web3.py 6+
 
 ### Blockchain
-- **Network**: Polygon Mumbai Testnet (Phase 1)
+- **Network**: Polygon Amoy Testnet (chainId 80002)
 - **Language**: Solidity 0.8+
 - **Development**: Hardhat
 - **Node Provider**: Alchemy API
@@ -56,96 +56,229 @@ creativechain/
 - Node.js 18+
 - Python 3.11+
 - PostgreSQL 14+ (required; no SQLite fallback in development)
-- Redis 7+ (required for Celery task queue)
-- Docker and Docker Compose (optional; Redis only)
+- Redis URL (required for Celery task queue): external (e.g., Upstash) or local Redis 7+
+- Docker and Docker Compose (optional; only needed if you run Redis locally)
 
-### Quick Start (Step 0: Foundation Lock)
+### 0) Clone the repository
 
-1. **Clone and bootstrap**
-   ```bash
-   git clone <repository-url>
-   cd creativechain
-   ```
+```bash
+git clone <repository-url>
+cd project
+```
 
-2. **Start Redis (Docker)**
-   ```bash
-   docker compose up -d
-   # This starts:
-   # - redis:7 on localhost:6379
-   ```
+### 1) Redis setup (choose one)
 
-3. **Set up Backend**
-   ```bash
-   cd backend
-   python -m venv venv
-   source venv/bin/activate  # Linux/Mac or venv\Scripts\activate (Windows)
-   pip install -r requirements.txt
-   cp .env.example .env
-   # Edit .env with actual values:
-   #   DATABASE_URL=postgresql://<SUPABASE_DB_USER>:<SUPABASE_DB_PASSWORD>@<SUPABASE_DB_HOST>:5432/<SUPABASE_DB_NAME>?sslmode=require
-   #   REDIS_URL=redis://localhost:6379/0
-   #   POLYGON_AMOY_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/<YOUR_KEY>
-   #   CORS_ALLOWED_ORIGINS=http://localhost:8080,http://localhost:3000
-   python manage.py migrate
-   python manage.py runserver  # Server on http://localhost:8000
-   ```
+#### Option A: Use external Redis (recommended if already provisioned)
 
-4. **Verify Backend Health**
-   ```bash
-   curl http://localhost:8000/health
-   # Should return 200 with healthy status for database, redis, blockchain
-   ```
+Set `REDIS_URL` in `backend/.env` to your managed Redis URL.
 
-5. **Set up Frontend (separate terminal)**
-   ```bash
-   cd frontend
-   npm install  # or bun install
-   cp .env.example .env.local
-   # Edit .env.local:
-   #   VITE_API_BASE_URL=http://localhost:8000
-   #   VITE_CHAIN_ID=80002
-   #   VITE_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/<YOUR_KEY>
-   npm run dev  # Dev server on http://localhost:8080
-   ```
+- Upstash example (TLS): `rediss://...`
+- Local Redis example: `redis://localhost:6379/0`
 
-6. **Set up Smart Contracts (separate terminal)**
-   ```bash
-   cd contracts
-   npm install
-   cp .env.example .env
-   # Edit .env:
-   #   POLYGON_AMOY_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/<YOUR_KEY>
-   npx hardhat compile  # Compile contracts
-   npx hardhat test     # Run contract tests
-   ```
+#### Option B: Run local Redis via Docker (optional)
 
-7. **Start Celery Worker (separate terminal, from backend/)**
-   ```bash
-   cd backend
-   celery -A creativechain worker -l info
-   # Worker should connect to Redis and await tasks
-   ```
+```bash
+docker compose up -d
+docker compose ps
+```
 
-### Post-Setup Verification
+Expected: `creativechain-redis` is up and healthy on `localhost:6379`.
 
-All three services should be running:
-- Backend: `http://localhost:8000` — health check passes
-- Frontend: `http://localhost:8080` — dev server loaded
-- Contracts: compile/test pass without errors
-- Redis: reachable at `localhost:6379`
-- PostgreSQL: connected to Supabase and migrated
+### 2) Configure and run Backend (Django API)
 
-If health check fails at `http://localhost:8000/health`, check:
-1. Redis is running: `docker compose ps`
-2. `DATABASE_URL` points to your Supabase PostgreSQL instance (with `sslmode=require`)
-3. `POLYGON_AMOY_RPC_URL` is set in `.env`
-4. Backend logs for error messages: `python manage.py runserver` output
+From `backend/`:
+
+```bash
+cd backend
+
+# Use the canonical local environment path for this project.
+python -m venv .venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+Edit `backend/.env` and set at minimum:
+
+- `SECRET_KEY`
+- `DEBUG=True`
+- `ALLOWED_HOSTS=localhost,127.0.0.1`
+- `DATABASE_URL=postgresql://<SUPABASE_DB_USER>:<SUPABASE_DB_PASSWORD_URLENCODED>@<SUPABASE_DB_HOST>:5432/<SUPABASE_DB_NAME>?sslmode=require`
+- `REDIS_URL=<YOUR_REDIS_URL>` (use `rediss://...` for managed TLS Redis, or `redis://localhost:6379/0` for local)
+- `POLYGON_AMOY_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/<YOUR_KEY>`
+- `CORS_ALLOWED_ORIGINS=http://localhost:8080`
+
+Then run migrations and API server:
+
+```bash
+python manage.py migrate
+python manage.py runserver
+```
+
+Backend runs at `http://localhost:8000`.
+
+### 3) Run Celery worker (new terminal)
+
+From `backend/` with the same venv active:
+
+```bash
+cd backend
+source .venv/bin/activate
+
+celery -A creativechain worker -l info
+```
+
+Then, in a separate terminal (while the worker is still running), run:
+
+```bash
+cd backend
+source .venv/bin/activate
+python manage.py verify_celery
+```
+
+If the worker is not running first, `verify_celery` will time out.
+
+### 4) Configure and run Frontend (new terminal)
+
+From `frontend/`:
+
+```bash
+cd frontend
+npm install
+```
+
+Create `frontend/.env.local` with:
+
+```bash
+cat > .env.local << 'EOF'
+VITE_API_BASE_URL=http://localhost:8000
+VITE_CHAIN_ID=80002
+VITE_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/<YOUR_KEY>
+# Optional: enables WalletConnect button when set
+# VITE_WALLETCONNECT_PROJECT_ID=<YOUR_PROJECT_ID>
+EOF
+```
+
+Run the dev server:
+
+```bash
+npm run dev
+```
+
+Frontend runs at `http://localhost:8080`.
+
+### 5) Configure and run Contracts workspace (new terminal)
+
+From `contracts/`:
+
+```bash
+cd contracts
+npm install
+```
+
+Create `contracts/.env` with local/test values:
+
+```bash
+cat > .env << 'EOF'
+POLYGON_AMOY_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/<YOUR_KEY>
+# Required only for deploy/verify
+# PRIVATE_KEY=<0x...>
+# POLYGONSCAN_API_KEY=<YOUR_KEY>
+EOF
+```
+
+Compile and test contracts:
+
+```bash
+npm run compile
+npm run test
+```
+
+Optional contract quality checks:
+
+```bash
+npm run coverage
+npm run analyze
+npm run export:abis
+```
+
+If `slither` is not globally available, use the backend venv-provided binary:
+
+```bash
+cd /home/darkduty/project/contracts
+/home/darkduty/project/backend/.venv/bin/slither . --config-file slither.config.json
+```
+
+## Quick Health Verification
+
+Run these after all services are up:
+
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/api/v1/health/
+```
+
+Expected:
+- Backend health endpoints return success for DB + Redis + blockchain checks.
+- Frontend loads at `http://localhost:8080`.
+- Celery worker shows connected-to-Redis startup logs.
+
+## Running Tests
+
+### Backend
+
+> Supabase note: always use `--keepdb --noinput` to avoid teardown failures from active sessions.
+
+```bash
+cd backend
+source .venv/bin/activate
+
+python manage.py test --keepdb --noinput
+```
+
+Targeted backend tests example:
+
+```bash
+python manage.py test apps.marketplace.tests --keepdb --noinput
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm run test
+```
+
+### Contracts
+
+```bash
+cd contracts
+npm run test
+```
+
+## Common Issues
+
+1. Backend health fails with DB error:
+   - Confirm `DATABASE_URL` points to PostgreSQL and includes `sslmode=require`.
+   - URL-encode DB password characters in the connection string.
+2. Celery does not start:
+   - Confirm `REDIS_URL` is correct and reachable.
+   - If using local Redis, verify `docker compose ps` shows `creativechain-redis` healthy.
+   - If using Upstash/managed Redis, use `rediss://...` and include required TLS query params from your provider.
+3. Frontend cannot reach API:
+   - Confirm `VITE_API_BASE_URL=http://localhost:8000` in `frontend/.env.local`.
+4. WalletConnect button missing:
+   - Set `VITE_WALLETCONNECT_PROJECT_ID` in `frontend/.env.local`.
+5. Contract deploy/verify fails:
+   - Ensure `PRIVATE_KEY`, `POLYGON_AMOY_RPC_URL`, and `POLYGONSCAN_API_KEY` are set in `contracts/.env`.
 
 ## Documentation
 
-- [System Memory Artifact](./Docs/blockchain-project.md) - Complete technical documentation
-- [Project Specification](./Docs/creativechain-project.json) - Structured project data
-- [Implementation Plan](./Docs/IMPLEMENTATION_PLAN.md) - 6-month development roadmap
+- [AI docs index](./AI_DOCS/README.md)
+- [Product requirements](./AI_DOCS/1_PRD.md)
+- [Architecture](./AI_DOCS/2_ARCHITECTURE.md)
+- [Execution plan](./AI_DOCS/4_PLAN.md)
 
 ## Development Status
 

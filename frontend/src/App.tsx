@@ -10,6 +10,7 @@ import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
 import Works from "./pages/Works";
 import Marketplace from "./pages/Marketplace";
+import MarketplaceWorkDetailPage from "./pages/MarketplaceWorkDetail";
 import Infringement from "./pages/Infringement";
 import Collaboration from "./pages/Collaboration";
 import Legal from "./pages/Legal";
@@ -31,6 +32,7 @@ const App = () => (
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/works" element={<Works />} />
               <Route path="/marketplace" element={<Marketplace />} />
+              <Route path="/marketplace/works/:workId" element={<MarketplaceWorkDetailPage />} />
               <Route path="/infringement" element={<Infringement />} />
               <Route path="/collaboration" element={<Collaboration />} />
               <Route path="/legal" element={<Legal />} />
