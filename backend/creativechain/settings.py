@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 from pathlib import Path
 import os
 from urllib.parse import parse_qs, urlparse
+from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
@@ -277,12 +278,34 @@ CONTRACT_IP_REGISTRY_ADDRESS = os.getenv('CONTRACT_IP_REGISTRY_ADDRESS', '')
 CONTRACT_LICENSE_AGREEMENT_ADDRESS = os.getenv('CONTRACT_LICENSE_AGREEMENT_ADDRESS', '')
 CONTRACT_COLLABORATIVE_WORK_ADDRESS = os.getenv('CONTRACT_COLLABORATIVE_WORK_ADDRESS', '')
 
+# Infringement Detection (Step 10)
+INFRINGEMENT_MATCH_THRESHOLD = float(os.getenv('INFRINGEMENT_MATCH_THRESHOLD', '0.65'))
+INFRINGEMENT_SEVERITY_MEDIUM_THRESHOLD = float(os.getenv('INFRINGEMENT_SEVERITY_MEDIUM_THRESHOLD', '0.70'))
+INFRINGEMENT_SEVERITY_HIGH_THRESHOLD = float(os.getenv('INFRINGEMENT_SEVERITY_HIGH_THRESHOLD', '0.85'))
+INFRINGEMENT_SEVERITY_CRITICAL_THRESHOLD = float(os.getenv('INFRINGEMENT_SEVERITY_CRITICAL_THRESHOLD', '0.95'))
+INFRINGEMENT_ENABLE_IMAGE_PHASH = os.getenv('INFRINGEMENT_ENABLE_IMAGE_PHASH', 'False') == 'True'
+INFRINGEMENT_ENABLE_AUDIO_MFCC = os.getenv('INFRINGEMENT_ENABLE_AUDIO_MFCC', 'False') == 'True'
+INFRINGEMENT_ENABLE_TEXT_SEMANTIC = os.getenv('INFRINGEMENT_ENABLE_TEXT_SEMANTIC', 'False') == 'True'
+INFRINGEMENT_DAILY_SCAN_HOUR_UTC = int(os.getenv('INFRINGEMENT_DAILY_SCAN_HOUR_UTC', '0'))
+INFRINGEMENT_DAILY_SCAN_MINUTE_UTC = int(os.getenv('INFRINGEMENT_DAILY_SCAN_MINUTE_UTC', '0'))
+INFRINGEMENT_NOTIFICATION_COOLDOWN_MINUTES = int(os.getenv('INFRINGEMENT_NOTIFICATION_COOLDOWN_MINUTES', '10'))
+
+CELERY_BEAT_SCHEDULE = {
+    'infringement-daily-simulated-scan': {
+        'task': 'infringement.daily_simulated_scan',
+        'schedule': crontab(
+            hour=INFRINGEMENT_DAILY_SCAN_HOUR_UTC,
+            minute=INFRINGEMENT_DAILY_SCAN_MINUTE_UTC,
+        ),
+    },
+}
+
 # IPFS Configuration
 PINATA_API_KEY = os.getenv('PINATA_API_KEY', '')
 PINATA_SECRET_KEY = os.getenv('PINATA_SECRET_KEY', '')
 
 # Email Configuration
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
 EMAIL_HOST = 'smtp.sendgrid.net'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
