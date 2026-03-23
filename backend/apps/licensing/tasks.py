@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from apps.audit_logs.models import AuditLog
 from apps.marketplace.models import MarketplaceListing
+from apps.collaboration.services import create_revenue_split_records_for_license
 
 from .models import LicensePurchase
 from .services_blockchain import (
@@ -102,6 +103,8 @@ def verify_license_receipt_task(self, purchase_id: int, tx_hash: str) -> dict:
         update_fields=['tx_hash', 'block_number', 'purchased_at', 'status', 'error_message', 'updated_at']
     )
 
+    split_records_created = create_revenue_split_records_for_license(purchase)
+
     if purchase.is_exclusive:
         MarketplaceListing.objects.filter(work_id=purchase.work_id).update(is_listed=False, updated_at=timezone.now())
 
@@ -123,5 +126,6 @@ def verify_license_receipt_task(self, purchase_id: int, tx_hash: str) -> dict:
         'tx_hash': verification['tx_hash'],
         'block_number': verification['block_number'],
         'is_exclusive': purchase.is_exclusive,
+        'split_records_created': split_records_created,
     }
 

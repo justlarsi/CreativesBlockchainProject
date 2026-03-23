@@ -7,6 +7,7 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts.models import Wallet
+from apps.collaboration.models import Collaboration, CollaborationMember, RevenueSplitRecord
 from apps.marketplace.models import MarketplaceListing
 from apps.works.models import ContentHash, CreativeWork
 
@@ -296,3 +297,57 @@ class LicensingStep9Tests(APITestCase):
 		self.assertEqual(purchase.status, LicensePurchase.Status.ACTIVE)
 		self.listing.refresh_from_db()
 		self.assertFalse(self.listing.is_listed)
+
+	@patch('apps.licensing.tasks.verify_purchase_receipt')
+	@patch('apps.licensing.tasks.creator_wallet_address_for_listing', return_value='0x1111111111111111111111111111111111111111')
+	def test_task_creates_revenue_split_records_for_registered_collaboration(self, _mock_wallet, mock_verify):
+		collaboration = Collaboration.objects.create(
+			work=self.work,
+			creator=self.creator,
+			status=Collaboration.Status.REGISTERED,
+		)
+		member_creator = CollaborationMember.objects.create(
+			collaboration=collaboration,
+			user=self.creator,
+			wallet_address='0x1111111111111111111111111111111111111111',
+			split_bps=6000,
+			approval_status=CollaborationMember.ApprovalStatus.APPROVED,
+		)
+		member_buyer = CollaborationMember.objects.create(
+			collaboration=collaboration,
+			user=self.buyer,
+			wallet_address='0x9999999999999999999999999999999999999999',
+			split_bps=4000,
+			approval_status=CollaborationMember.ApprovalStatus.APPROVED,
+		)
+
+		purchase = LicensePurchase.objects.create(
+			work=self.work,
+			buyer=self.buyer,
+			creator=self.creator,
+			template=LicensePurchase.Template.PERSONAL,
+			rights_scope=LicensePurchase.RightsScope.NON_COMMERCIAL,
+			is_exclusive=False,
+			amount_wei=1_000,
+			status=LicensePurchase.Status.PENDING_CONFIRMATION,
+			tx_hash='0x' + '7' * 64,
+		)
+
+		mock_verify.return_value = {
+			'tx_hash': purchase.tx_hash,
+			'block_number': 333,
+			'purchased_at': datetime.now(dt_timezone.utc),
+			'explorer_url': 'https://amoy.polygonscan.com/tx/' + purchase.tx_hash,
+		}
+
+		result = verify_license_receipt_task(purchase.id, purchase.tx_hash)
+		self.assertEqual(result['status'], 'ok')
+		self.assertEqual(result['split_records_created'], 2)
+
+		records = RevenueSplitRecord.objects.filter(license_purchase=purchase).order_by('member_id')
+		self.assertEqual(records.count(), 2)
+		self.assertEqual(records[0].member_id, member_creator.id)
+		self.assertEqual(records[0].amount_wei, 600)
+		self.assertEqual(records[1].member_id, member_buyer.id)
+		self.assertEqual(records[1].amount_wei, 400)
+

@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from apps.audit_logs.models import AuditLog
+from apps.collaboration.models import Collaboration
 
 from .models import CreativeWork
 from .serializers import (
@@ -120,6 +121,13 @@ class RegisterBlockchainPrepareView(generics.GenericAPIView):
 
     def post(self, request, *args, **kwargs):
         work = self.get_object()
+
+        collaboration = getattr(work, 'collaboration', None)
+        if collaboration and collaboration.status != Collaboration.Status.APPROVED:
+            raise ValidationError(
+                {'detail': 'Collaboration must be fully approved before blockchain registration can be prepared.'}
+            )
+
         try:
             payload = prepare_registration_payload(work)
         except BlockchainPreparationError as exc:

@@ -1,7 +1,8 @@
 import { AppLayout } from "@/components/AppLayout";
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, DollarSign, CheckCircle, ArrowRight, FileText, Percent, UserPlus } from "lucide-react";
 import { toast } from "sonner";
+import { approveCollaboration, listCollaborations, type CollaborationRecord } from "@/api/collaboration";
 import {
   Dialog,
   DialogContent,
@@ -10,46 +11,107 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
-const collaborations = [
-  {
-    id: "COL-001",
-    title: "Afrobeats Compilation Vol. 4",
-    type: "Music",
-    status: "active",
-    emoji: "🎵",
-    members: [
-      { name: "James Mwangi", avatar: "JM", role: "Producer", split: 40 },
-      { name: "Fatima Hassan", avatar: "FH", role: "Vocalist", split: 35 },
-      { name: "Amara Kamau", avatar: "AK", role: "Mixing Engineer", split: 25 },
-    ],
-    totalRevenue: 890,
-  },
-  {
-    id: "COL-002",
-    title: "Nairobi Illustrated Guide",
-    type: "Illustration",
-    status: "pending",
-    emoji: "🎨",
-    members: [
-      { name: "Amara Kamau", avatar: "AK", role: "Lead Illustrator", split: 60 },
-      { name: "Zara Njoroge", avatar: "ZN", role: "Photography", split: 40 },
-    ],
-    totalRevenue: 0,
-  },
-];
-
 const splitColors = ["bg-primary", "bg-accent", "bg-chart-3", "bg-chart-4"];
 
+function getAccessToken(): string {
+  return localStorage.getItem("access") || localStorage.getItem("access_token") || "";
+}
+
+function initials(value: string): string {
+  const parts = value.split(" ").filter(Boolean);
+  return (parts[0]?.[0] || "?") + (parts[1]?.[0] || "");
+}
+
+function mapCollaborationForCard(collaboration: CollaborationRecord) {
+  const isActive =
+    collaboration.status === "APPROVED" ||
+    collaboration.status === "REGISTERED" ||
+    collaboration.status === "BLOCKCHAIN_REGISTRATION_PENDING";
+
+  return {
+    id: collaboration.id,
+    title: `Work #${collaboration.work_id}`,
+    type: "Collaboration",
+    status: isActive ? "active" : "pending",
+    emoji: "🤝",
+    members: collaboration.members.map((member) => ({
+      id: member.id,
+      name: member.username,
+      avatar: initials(member.username),
+      role: member.approval_status === "APPROVED" ? "Approved" : "Pending approval",
+      split: member.split_bps / 100,
+      approval_status: member.approval_status,
+    })),
+    totalRevenue: 0,
+    approvals: `${collaboration.approvals_received}/${collaboration.approvals_required}`,
+    canApprove: collaboration.status === "PENDING_APPROVAL",
+  };
+}
+
 export default function Collaboration() {
+  const accessToken = getAccessToken();
   const [newCollabOpen, setNewCollabOpen] = useState(false);
   const [collabForm, setCollabForm] = useState({ title: "", type: "Music", invite: "" });
+  const [collaborations, setCollaborations] = useState<CollaborationRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [approvingId, setApprovingId] = useState<number | null>(null);
+
+  const loadCollaborations = useCallback(async () => {
+    if (!accessToken) {
+      setCollaborations([]);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      const records = await listCollaborations(accessToken);
+      setCollaborations(records);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load collaborations.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    void loadCollaborations();
+  }, [loadCollaborations]);
+
+  const cards = useMemo(() => collaborations.map(mapCollaborationForCard), [collaborations]);
+
+  async function handleApprove(collaborationId: number): Promise<void> {
+    if (!accessToken) {
+      toast.error("Sign in first to approve collaborations.");
+      return;
+    }
+
+    setApprovingId(collaborationId);
+    try {
+      await approveCollaboration(accessToken, collaborationId);
+      toast.success("Collaboration approval submitted.");
+      await loadCollaborations();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to approve collaboration.";
+      toast.error(message);
+    } finally {
+      setApprovingId(null);
+    }
+  }
 
   return (
     <AppLayout title="Collaboration" subtitle="Transparent multi-party revenue splits">
       <div className="space-y-5 animate-fade-in">
+        {!accessToken && (
+          <div className="stat-card rounded-xl p-4">
+            <p className="text-xs text-muted-foreground">Sign in to view and manage collaborations.</p>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">2 active collaborations</p>
+          <p className="text-xs text-muted-foreground">{cards.length} collaborations</p>
           <button
             onClick={() => setNewCollabOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 transition-all shadow-teal"
@@ -60,8 +122,14 @@ export default function Collaboration() {
 
         {/* Collaborations */}
         <div className="space-y-4">
-          {collaborations.map((collab) => (
-            <div key={collab.id} className="stat-card rounded-xl p-5">
+          {isLoading && <div className="stat-card rounded-xl p-5 text-xs text-muted-foreground">Loading collaborations...</div>}
+          {!isLoading && error && <div className="stat-card rounded-xl p-5 text-xs text-destructive">{error}</div>}
+          {!isLoading && !error && cards.length === 0 && (
+            <div className="stat-card rounded-xl p-5 text-xs text-muted-foreground">No collaborations yet.</div>
+          )}
+
+          {!isLoading && !error && cards.map((collab) => (
+            <div key={collab.id} className="stat-card rounded-xl p-5" data-testid="collaboration-row">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="h-10 w-10 rounded-xl bg-muted flex items-center justify-center text-xl">{collab.emoji}</div>
@@ -69,10 +137,11 @@ export default function Collaboration() {
                     <h3 className="font-display font-semibold text-sm text-foreground">{collab.title}</h3>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs text-muted-foreground">{collab.type}</span>
-                      <span className="text-xs font-mono text-muted-foreground">{collab.id}</span>
+                      <span className="text-xs font-mono text-muted-foreground">COL-{String(collab.id).padStart(3, "0")}</span>
                       <span className={`text-xs px-1.5 py-0.5 rounded-full ${collab.status === "active" ? "badge-verified" : "badge-pending"}`}>
                         {collab.status === "active" ? "Active" : "Pending"}
                       </span>
+                      <span className="text-xs text-muted-foreground">Approvals {collab.approvals}</span>
                     </div>
                   </div>
                 </div>
@@ -87,7 +156,7 @@ export default function Collaboration() {
                 <p className="text-xs text-muted-foreground mb-2">Revenue Split</p>
                 <div className="h-2 rounded-full overflow-hidden flex mb-3">
                   {collab.members.map((m, i) => (
-                    <div key={i} className={`${splitColors[i]} h-full`} style={{ width: `${m.split}%` }} />
+                    <div key={m.id} className={`${splitColors[i % splitColors.length]} h-full`} style={{ width: `${m.split}%` }} />
                   ))}
                 </div>
                 <div className="grid sm:grid-cols-3 gap-2">
@@ -128,12 +197,25 @@ export default function Collaboration() {
                 >
                   <FileText className="h-3 w-3" />Contract
                 </button>
-                <button
-                  onClick={() => toast.info("Collaboration management coming soon")}
-                  className="flex items-center gap-1 text-xs text-primary ml-auto hover:underline"
-                >
-                  Manage <ArrowRight className="h-3 w-3" />
-                </button>
+                {collab.canApprove ? (
+                  <button
+                    onClick={() => {
+                      void handleApprove(collab.id);
+                    }}
+                    disabled={approvingId === collab.id}
+                    className="flex items-center gap-1 text-xs text-primary ml-auto hover:underline disabled:opacity-50"
+                    data-testid="approve-collaboration"
+                  >
+                    {approvingId === collab.id ? "Approving..." : "Approve"} <ArrowRight className="h-3 w-3" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => toast.info("Collaboration management coming soon")}
+                    className="flex items-center gap-1 text-xs text-primary ml-auto hover:underline"
+                  >
+                    Manage <ArrowRight className="h-3 w-3" />
+                  </button>
+                )}
               </div>
             </div>
           ))}
