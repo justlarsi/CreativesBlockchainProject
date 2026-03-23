@@ -111,6 +111,7 @@ class MarketplaceAPITests(APITestCase):
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
 		self.assertEqual(response.data['work_id'], work.id)
 		self.assertEqual(response.data['license_type'], 'exclusive')
+		self.assertGreater(int(response.data['price_wei']), 0)
 		self.assertEqual(response.data['creator']['username'], 'creator1')
 		self.assertEqual(response.data['creator']['bio'], 'Nairobi-based creator')
 		self.assertEqual(response.data['creator']['wallet_address'], '0x1111111111111111111111111111111111111111')

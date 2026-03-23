@@ -30,6 +30,7 @@ class LicensePurchase(models.Model):
 	amount_wei = models.BigIntegerField()
 
 	tx_hash = models.CharField(max_length=66, blank=True, default='')
+	receipt_idempotency_key = models.CharField(max_length=128, blank=True, default='')
 	block_number = models.BigIntegerField(null=True, blank=True)
 	purchased_at = models.DateTimeField(null=True, blank=True)
 	status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING_CONFIRMATION)
@@ -43,6 +44,11 @@ class LicensePurchase(models.Model):
 		ordering = ['-created_at']
 		constraints = [
 			models.UniqueConstraint(fields=['tx_hash'], name='licensing_unique_tx_hash', condition=~models.Q(tx_hash='')),
+			models.UniqueConstraint(
+				fields=['receipt_idempotency_key'],
+				name='licensing_unique_receipt_idempotency_key',
+				condition=~models.Q(receipt_idempotency_key=''),
+			),
 		]
 
 	def __str__(self) -> str:

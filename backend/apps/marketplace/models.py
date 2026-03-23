@@ -38,7 +38,7 @@ class MarketplaceListing(models.Model):
 
 	def save(self, *args, **kwargs):
 		if self.price_wei <= 0 and self.price_amount is not None:
-			# Backfill from legacy display field when explicit wei price is not provided.
-			self.price_wei = int((self.price_amount * Decimal('1000000000000000000')).to_integral_value())
+			# Backfill from legacy 2-decimal display field without exceeding bigint range.
+			self.price_wei = int((self.price_amount * Decimal('10000000000000000')).to_integral_value())
 		super().save(*args, **kwargs)
 

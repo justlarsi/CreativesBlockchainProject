@@ -24,6 +24,7 @@ export interface MarketplaceWorkDetail {
   ipfs_metadata_cid: string;
   license_type: MarketplaceLicenseType;
   price_amount: string;
+  price_wei: string;
   creator: {
     username: string;
     bio: string;

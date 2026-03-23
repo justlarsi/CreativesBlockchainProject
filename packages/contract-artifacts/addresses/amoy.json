@@ -1,10 +1,10 @@
 {
   "chainId": 80002,
   "network": "amoy",
-  "deployedAt": "2026-03-19T00:00:00Z",
+  "deployedAt": "2026-03-23T09:36:57.518Z",
   "contracts": {
     "IPRegistry": "0xbf559FA83ecB20f65030CF1265E2E65a12d67be3",
-    "LicenseAgreement": "",
+    "LicenseAgreement": "0x4DEc9afA5Ce50C63ca505e806d875B4825E01332",
     "CollaborativeWork": ""
   }
 }

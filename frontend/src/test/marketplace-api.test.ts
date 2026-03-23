@@ -38,6 +38,7 @@ describe("marketplace api", () => {
           ipfs_metadata_cid: "",
           license_type: "personal",
           price_amount: "10.00",
+          price_wei: "10000000000000000000",
           creator: { username: "creator", bio: "b", wallet_address: null },
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),

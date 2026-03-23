@@ -54,6 +54,7 @@ class MarketplaceListingDetailSerializer(serializers.ModelSerializer):
 			'ipfs_metadata_cid',
 			'license_type',
 			'price_amount',
+			'price_wei',
 			'creator',
 			'created_at',
 			'updated_at',
