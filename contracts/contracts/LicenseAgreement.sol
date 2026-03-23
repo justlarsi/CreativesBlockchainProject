@@ -56,8 +56,8 @@ contract LicenseAgreement {
             purchasedAt: block.timestamp
         });
 
-        // Transfer payment to licensor (simplified - in production, use pull payment pattern)
-        // payable(licensor).transfer(msg.value);
+        // Transfer payment to licensor — creator receives 100% of payment (Phase 1 model)
+        payable(licensor).transfer(msg.value);
 
         emit LicensePurchased(
             licenseCounter,

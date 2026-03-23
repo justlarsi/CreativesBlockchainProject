@@ -24,6 +24,8 @@ class MarketplaceListing(models.Model):
 		decimal_places=2,
 		validators=[MinValueValidator(Decimal('0.00'))],
 	)
+	# Canonical source-of-truth price for blockchain purchase flow.
+	price_wei = models.BigIntegerField(default=0, validators=[MinValueValidator(0)])
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
 
@@ -33,3 +35,10 @@ class MarketplaceListing(models.Model):
 
 	def __str__(self) -> str:
 		return f'{self.work_id}:{self.license_type}:{self.price_amount}'
+
+	def save(self, *args, **kwargs):
+		if self.price_wei <= 0 and self.price_amount is not None:
+			# Backfill from legacy display field when explicit wei price is not provided.
+			self.price_wei = int((self.price_amount * Decimal('1000000000000000000')).to_integral_value())
+		super().save(*args, **kwargs)
+
