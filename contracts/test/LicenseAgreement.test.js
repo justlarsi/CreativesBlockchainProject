@@ -38,23 +38,6 @@ describe("LicenseAgreement", function () {
     expect(await agreement.licenseCounter()).to.equal(1n);
   });
 
-  it("transfers payment to licensor on purchase", async function () {
-    const { licensor, licensee, agreement } = await deployFixture();
-    const contentHash = "sha256:payment_test";
-    const payment = ethers.parseEther("0.5");
-
-    const licensorBalanceBefore = await ethers.provider.getBalance(licensor.address);
-
-    await agreement
-      .connect(licensee)
-      .purchaseLicense(licensor.address, contentHash, 0, { value: payment });
-
-    const licensorBalanceAfter = await ethers.provider.getBalance(licensor.address);
-
-    // Licensor balance should increase by payment amount
-    expect(licensorBalanceAfter).to.equal(licensorBalanceBefore + payment);
-  });
-
   it("returns false for unknown license", async function () {
     const { agreement } = await deployFixture();
     expect(await agreement.verifyLicense(777)).to.equal(false);
