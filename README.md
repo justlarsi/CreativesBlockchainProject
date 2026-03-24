@@ -257,6 +257,54 @@ cd contracts
 npm run test
 ```
 
+## Step 15 Deployment Smoke Runbook
+
+### Backend deployment essentials (Heroku)
+
+- Ensure `backend/Procfile` includes a `release` process for safe migrations.
+- Ensure `backend/runtime.txt` matches your target Python runtime.
+- Ensure `backend/requirements.txt` includes `gunicorn`.
+
+Deploy backend subtree and check release output:
+
+```bash
+cd /home/darkduty/project/backend
+heroku releases:output -a <your-heroku-app>
+```
+
+### Frontend deployment essentials (Vercel)
+
+- Set project root to `frontend/` in Vercel.
+- Configure required `VITE_*` environment variables.
+
+### Monitoring baseline (Step 15)
+
+- External uptime provider: Better Stack
+- Error tracking: Sentry (`SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE` in backend env)
+- Alert destination: Discord webhook (wired from Better Stack + Sentry)
+
+### Extended smoke checks (post-deploy)
+
+Use `scripts/step15-smoke.sh` against deployed URLs.
+
+Required env vars:
+- `API_BASE_URL`
+- `SMOKE_TEST_EMAIL`
+- `SMOKE_TEST_PASSWORD`
+- `SMOKE_TEST_USERNAME`
+- `SMOKE_TEST_MARKETPLACE_WORK_ID`
+- `SMOKE_TEST_LICENSING_WORK_ID`
+- `SMOKE_TEST_INFRINGEMENT_WORK_ID`
+- `SMOKE_TEST_LEGAL_WORK_ID`
+- Optional: `SMOKE_TEST_COLLABORATION_ID`, `SMOKE_TEST_LICENSING_TX_HASH`
+
+Run:
+
+```bash
+cd /home/darkduty/project
+./scripts/step15-smoke.sh
+```
+
 ## Common Issues
 
 1. Backend health fails with DB error:

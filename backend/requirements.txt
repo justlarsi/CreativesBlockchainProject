@@ -16,6 +16,10 @@ celery==5.3.4
 # Environment Variables
 python-dotenv==1.0.0
 
+# Deployment + Monitoring
+gunicorn==22.0.0
+sentry-sdk==2.14.0
+
 # Wallet signature verification
 eth-account==0.13.7
 
@@ -26,3 +30,19 @@ Pillow>=10.4.0
 # - OpenCV/transformers/librosa/web3/reportlab/sendgrid remain in requirements-optional.txt.
 # - Pillow promoted from optional to core at Step 4.
 slither-analyzer==0.11.5
+
+# Blockchain
+web3==6.11.3
+#
+# Image / ML / Audio (can be problematic on newest Python without wheels)
+Pillow==10.2.0
+opencv-python==4.9.0.80
+transformers==4.36.2
+librosa==0.10.1
+#
+# PDF generation + email
+reportlab==4.0.7
+sendgrid==6.11.0
+#
+# Utilities
+python-dateutil==2.8.2

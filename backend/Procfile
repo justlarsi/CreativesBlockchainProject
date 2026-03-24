@@ -1,0 +1,4 @@
+release: python manage.py migrate
+web: gunicorn creativechain.wsgi --workers 2 --bind 0.0.0.0:$PORT
+worker: celery -A creativechain worker -l info --concurrency 2
+

@@ -17,6 +17,15 @@ from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.celery import CeleryIntegration
+    from sentry_sdk.integrations.django import DjangoIntegration
+except ImportError:  # pragma: no cover - optional in local/dev if not installed
+    sentry_sdk = None
+    CeleryIntegration = None
+    DjangoIntegration = None
+
 # Load environment variables
 load_dotenv()
 
@@ -314,3 +323,18 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'apikey'
 EMAIL_HOST_PASSWORD = os.getenv('SENDGRID_API_KEY', '')
 DEFAULT_FROM_EMAIL = os.getenv('EMAIL_FROM', 'noreply@creativechain.com')
+
+# Monitoring (Step 15)
+SENTRY_DSN = os.getenv('SENTRY_DSN', '').strip()
+SENTRY_ENVIRONMENT = os.getenv('SENTRY_ENVIRONMENT', 'production')
+SENTRY_TRACES_SAMPLE_RATE = float(os.getenv('SENTRY_TRACES_SAMPLE_RATE', '0.1'))
+
+if SENTRY_DSN and sentry_sdk:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[DjangoIntegration(), CeleryIntegration()],
+        environment=SENTRY_ENVIRONMENT,
+        traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
+        send_default_pii=False,
+    )
+
