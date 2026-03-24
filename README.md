@@ -51,6 +51,8 @@ creativechain/
 
 ## Getting Started
 
+**Prerequisites:** Ensure `.env` files are created and fully configured in `backend/`, `frontend/`, and `contracts/` before proceeding. See `backend/.env.example` for required variables.
+
 ### Prerequisites
 
 - Node.js 18+
@@ -66,16 +68,9 @@ git clone <repository-url>
 cd project
 ```
 
-### 1) Redis setup (choose one)
+### 1) Start Redis (if using local/Docker option)
 
-#### Option A: Use external Redis (recommended if already provisioned)
-
-Set `REDIS_URL` in `backend/.env` to your managed Redis URL.
-
-- Upstash example (TLS): `rediss://...`
-- Local Redis example: `redis://localhost:6379/0`
-
-#### Option B: Run local Redis via Docker (optional)
+If your `backend/.env` has `REDIS_URL=redis://localhost:6379/0`, start Redis via Docker:
 
 ```bash
 docker compose up -d
@@ -84,35 +79,26 @@ docker compose ps
 
 Expected: `creativechain-redis` is up and healthy on `localhost:6379`.
 
-### 2) Configure and run Backend (Django API)
+If using managed Redis (Upstash/external), skip this step.
+
+### 2) Run Backend (Django API)
 
 From `backend/`:
 
 ```bash
 cd backend
 
-# Use the canonical local environment path for this project.
+# Create and activate virtual environment
 python -m venv .venv
 source .venv/bin/activate
 
+# Install dependencies
 pip install -r requirements.txt
-cp .env.example .env
-```
 
-Edit `backend/.env` and set at minimum:
-
-- `SECRET_KEY`
-- `DEBUG=True`
-- `ALLOWED_HOSTS=localhost,127.0.0.1`
-- `DATABASE_URL=postgresql://<SUPABASE_DB_USER>:<SUPABASE_DB_PASSWORD_URLENCODED>@<SUPABASE_DB_HOST>:5432/<SUPABASE_DB_NAME>?sslmode=require`
-- `REDIS_URL=<YOUR_REDIS_URL>` (use `rediss://...` for managed TLS Redis, or `redis://localhost:6379/0` for local)
-- `POLYGON_AMOY_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/<YOUR_KEY>`
-- `CORS_ALLOWED_ORIGINS=http://localhost:8080`
-
-Then run migrations and API server:
-
-```bash
+# Run migrations (assumes DATABASE_URL in .env is set and accessible)
 python manage.py migrate
+
+# Start dev server
 python manage.py runserver
 ```
 
@@ -120,16 +106,17 @@ Backend runs at `http://localhost:8000`.
 
 ### 3) Run Celery worker (new terminal)
 
-From `backend/` with the same venv active:
+From `backend/` with the venv active:
 
 ```bash
 cd backend
 source .venv/bin/activate
 
+# Start the Celery worker (REDIS_URL from .env is used automatically)
 celery -A creativechain worker -l info
 ```
 
-Then, in a separate terminal (while the worker is still running), run:
+To verify Celery is working, in another terminal:
 
 ```bash
 cd backend
@@ -137,61 +124,38 @@ source .venv/bin/activate
 python manage.py verify_celery
 ```
 
-If the worker is not running first, `verify_celery` will time out.
+The worker must be running first, otherwise `verify_celery` will time out.
 
-### 4) Configure and run Frontend (new terminal)
+### 4) Run Frontend (new terminal)
 
 From `frontend/`:
 
 ```bash
 cd frontend
+
+# Install dependencies
 npm install
-```
 
-Create `frontend/.env.local` with:
-
-```bash
-cat > .env.local << 'EOF'
-VITE_API_BASE_URL=http://localhost:8000
-VITE_CHAIN_ID=80002
-VITE_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/<YOUR_KEY>
-# Optional: enables WalletConnect button when set
-# VITE_WALLETCONNECT_PROJECT_ID=<YOUR_PROJECT_ID>
-EOF
-```
-
-Run the dev server:
-
-```bash
+# Start dev server (uses VITE_* vars from .env.local)
 npm run dev
 ```
 
 Frontend runs at `http://localhost:8080`.
 
-### 5) Configure and run Contracts workspace (new terminal)
+### 5) Run Contracts (new terminal)
 
 From `contracts/`:
 
 ```bash
 cd contracts
+
+# Install dependencies
 npm install
-```
 
-Create `contracts/.env` with local/test values:
-
-```bash
-cat > .env << 'EOF'
-POLYGON_AMOY_RPC_URL=https://polygon-amoy.g.alchemy.com/v2/<YOUR_KEY>
-# Required only for deploy/verify
-# PRIVATE_KEY=<0x...>
-# POLYGONSCAN_API_KEY=<YOUR_KEY>
-EOF
-```
-
-Compile and test contracts:
-
-```bash
+# Compile contracts (uses POLYGON_AMOY_RPC_URL from .env)
 npm run compile
+
+# Run tests
 npm run test
 ```
 
@@ -206,7 +170,6 @@ npm run export:abis
 If `slither` is not globally available, use the backend venv-provided binary:
 
 ```bash
-cd /home/darkduty/project/contracts
 /home/darkduty/project/backend/.venv/bin/slither . --config-file slither.config.json
 ```
 
