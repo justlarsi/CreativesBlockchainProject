@@ -12,10 +12,11 @@ from eth_account.messages import encode_defunct
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .serializers import (
     CustomTokenObtainPairSerializer,
@@ -43,6 +44,8 @@ class RegisterView(generics.CreateAPIView):
 
     permission_classes = [AllowAny]
     serializer_class = RegisterSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_register'
 
     def create(self, request, *args, **kwargs) -> Response:
         serializer = self.get_serializer(data=request.data)
@@ -69,6 +72,16 @@ class CustomLoginView(TokenObtainPairView):
 
     permission_classes = [AllowAny]
     serializer_class = CustomTokenObtainPairSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_login'
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    """POST /api/v1/auth/refresh/ with a relaxed scoped throttle."""
+
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_refresh'
 
 
 class LogoutView(APIView):

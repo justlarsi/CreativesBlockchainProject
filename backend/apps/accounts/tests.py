@@ -8,12 +8,15 @@ Covers:
   - Logout: success (blacklists token), missing refresh, invalid token, unauthenticated
   - Me (profile): GET authenticated, PATCH update, unauthenticated 401
   - Token enforcement: protected routes reject missing/invalid/expired tokens
+  - Step 14: Auth endpoint scoped throttling is configured
 """
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from rest_framework import status
 from rest_framework.test import APITestCase
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 
 User = get_user_model()
@@ -39,11 +42,23 @@ def auth_header(user) -> dict:
     return {'HTTP_AUTHORIZATION': f'Bearer {refresh.access_token}'}
 
 
+class CacheIsolatedAPITestCase(APITestCase):
+    """Clear throttle/cache state around each test to avoid cross-test leakage."""
+
+    def _pre_setup(self):
+        cache.clear()
+        super()._pre_setup()
+
+    def _post_teardown(self):
+        cache.clear()
+        super()._post_teardown()
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
-class RegisterTests(APITestCase):
+class RegisterTests(CacheIsolatedAPITestCase):
     def test_register_success_returns_201_with_tokens_and_user(self):
         payload = {
             'username': 'alice',
@@ -114,7 +129,7 @@ class RegisterTests(APITestCase):
 # Login
 # ---------------------------------------------------------------------------
 
-class LoginTests(APITestCase):
+class LoginTests(CacheIsolatedAPITestCase):
     def setUp(self):
         self.user = make_user(username='loginuser', email='login@example.com', password='Str0ngPass!')
 
@@ -154,7 +169,7 @@ class LoginTests(APITestCase):
 # Token Refresh
 # ---------------------------------------------------------------------------
 
-class RefreshTests(APITestCase):
+class RefreshTests(CacheIsolatedAPITestCase):
     def setUp(self):
         self.user = make_user(username='refreshuser', email='refresh@example.com')
         self.refresh = RefreshToken.for_user(self.user)
@@ -190,11 +205,63 @@ class RefreshTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
+class AuthScopedThrottleTests(CacheIsolatedAPITestCase):
+    """
+    Tests that scoped throttle classes are applied to auth endpoints.
+    These tests verify the structure is in place; runtime throttle validation
+    is deferred to integration/staging testing with proper rate settings.
+    """
+
+    def test_register_view_has_scoped_throttle(self):
+        from apps.accounts.views import RegisterView
+        self.assertEqual(RegisterView.throttle_classes, [ScopedRateThrottle])
+        self.assertTrue(hasattr(RegisterView, 'throttle_scope'))
+        self.assertEqual(RegisterView.throttle_scope, 'auth_register')
+
+    def test_login_view_has_scoped_throttle(self):
+        from apps.accounts.views import CustomLoginView
+        self.assertEqual(CustomLoginView.throttle_classes, [ScopedRateThrottle])
+        self.assertTrue(hasattr(CustomLoginView, 'throttle_scope'))
+        self.assertEqual(CustomLoginView.throttle_scope, 'auth_login')
+
+    def test_refresh_view_has_scoped_throttle(self):
+        from apps.accounts.views import CustomTokenRefreshView
+        self.assertEqual(CustomTokenRefreshView.throttle_classes, [ScopedRateThrottle])
+        self.assertTrue(hasattr(CustomTokenRefreshView, 'throttle_scope'))
+        self.assertEqual(CustomTokenRefreshView.throttle_scope, 'auth_refresh')
+
+    def test_settings_preserve_global_defaults_and_scoped_rates(self):
+        from django.conf import settings
+        rest_framework_settings = settings.REST_FRAMEWORK
+        throttle_rates = rest_framework_settings.get('DEFAULT_THROTTLE_RATES', {})
+        throttle_classes = rest_framework_settings.get('DEFAULT_THROTTLE_CLASSES', [])
+
+        self.assertEqual(
+            throttle_classes,
+            [
+                'rest_framework.throttling.AnonRateThrottle',
+                'rest_framework.throttling.UserRateThrottle',
+            ],
+        )
+
+        self.assertIn('auth_register', throttle_rates)
+        self.assertIn('auth_login', throttle_rates)
+        self.assertIn('auth_refresh', throttle_rates)
+
+        register_rate = throttle_rates['auth_register']
+        login_rate = throttle_rates['auth_login']
+        refresh_rate = throttle_rates['auth_refresh']
+
+        self.assertEqual(register_rate, '5/hour')
+        self.assertEqual(login_rate, '10/hour')
+        self.assertEqual(refresh_rate, '120/hour')
+
+
 # ---------------------------------------------------------------------------
 # Logout
 # ---------------------------------------------------------------------------
 
-class LogoutTests(APITestCase):
+class LogoutTests(CacheIsolatedAPITestCase):
     def setUp(self):
         self.user = make_user(username='logoutuser', email='logout@example.com')
         self.refresh = RefreshToken.for_user(self.user)
@@ -235,7 +302,7 @@ class LogoutTests(APITestCase):
 # Me / Profile
 # ---------------------------------------------------------------------------
 
-class ProfileTests(APITestCase):
+class ProfileTests(CacheIsolatedAPITestCase):
     def setUp(self):
         self.user = make_user(username='profileuser', email='profile@example.com')
 
@@ -283,7 +350,7 @@ class ProfileTests(APITestCase):
 # Token enforcement on protected routes
 # ---------------------------------------------------------------------------
 
-class TokenEnforcementTests(APITestCase):
+class TokenEnforcementTests(CacheIsolatedAPITestCase):
     def test_me_without_token_returns_401(self):
         response = self.client.get(AUTH_ME)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -306,7 +373,7 @@ class TokenEnforcementTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
-class WalletIntegrationTests(APITestCase):
+class WalletIntegrationTests(CacheIsolatedAPITestCase):
     def setUp(self):
         self.user = make_user(username='walletuser', email='wallet@example.com', password='Str0ngPass!')
         self.auth = auth_header(self.user)

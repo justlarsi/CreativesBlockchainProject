@@ -207,10 +207,8 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
     ),
     'EXCEPTION_HANDLER': 'creativechain.exceptions.creativechain_exception_handler',
-    # Simple global throttle (Step 1).
-    # TODO [Future Step]: Upgrade to ScopedRateThrottle with tighter per-endpoint
-    #      limits for login/register and a relaxed rate for refresh + general API usage.
-    #      Tracked in AI_DOCS/4_PLAN.md Step 14 (Security Hardening).
+    # Step 14: keep global defaults for non-auth endpoints.
+    # Auth endpoints use ScopedRateThrottle at the view level.
     'DEFAULT_THROTTLE_CLASSES': [
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
@@ -218,6 +216,9 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/hour',
         'user': '1000/day',
+        'auth_login': '10/hour',
+        'auth_register': '5/hour',
+        'auth_refresh': '120/hour',
     },
 }
 
