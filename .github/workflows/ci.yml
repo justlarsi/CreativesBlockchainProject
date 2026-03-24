@@ -1,0 +1,176 @@
+name: ci
+
+on:
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  frontend-quality:
+    name: frontend-quality
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit -p tsconfig.app.json
+      - run: npm run test
+
+  backend-tests:
+    name: backend-tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: creativechain
+          POSTGRES_PASSWORD: creativechain
+          POSTGRES_DB: creativechain
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U creativechain -d creativechain"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://creativechain:creativechain@localhost:5432/creativechain?sslmode=require
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: test-secret-key
+      DEBUG: "False"
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      POLYGON_AMOY_RPC_URL: https://rpc-amoy.polygon.technology
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python manage.py migrate --noinput
+      - run: python manage.py test apps.accounts.tests apps.works.tests apps.marketplace.tests apps.licensing.tests apps.infringement.tests --keepdb --noinput
+
+  contracts-security:
+    name: contracts-security
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: contracts/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: npm ci
+      - run: pip install slither-analyzer==0.11.5
+      - run: npm run test
+      - run: npm run analyze
+
+  dependency-audit:
+    name: dependency-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: npm-audit-frontend
+        working-directory: frontend
+        run: npm audit --package-lock-only --audit-level=high
+      - name: npm-audit-contracts
+        working-directory: contracts
+        run: npm audit --package-lock-only --audit-level=high
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: pip-audit-high-critical
+        working-directory: backend
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --format json --output pip-audit.json || true
+          python - <<'PY'
+          import json
+          import sys
+
+          HIGH_THRESHOLD = 7.0
+
+          with open('pip-audit.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+
+          findings = []
+          for dep in data.get('dependencies', []):
+              name = dep.get('name')
+              version = dep.get('version')
+              for vuln in dep.get('vulns', []):
+                  max_score = 0.0
+                  for sev in vuln.get('severity', []):
+                      score = sev.get('score')
+                      try:
+                          max_score = max(max_score, float(score))
+                      except (TypeError, ValueError):
+                          continue
+                  if max_score >= HIGH_THRESHOLD:
+                      findings.append(
+                          f"{name}@{version} {vuln.get('id')} score={max_score}"
+                      )
+
+          if findings:
+              print('High/Critical Python vulnerabilities found:')
+              for finding in findings:
+                  print(f'- {finding}')
+              sys.exit(1)
+
+          print('No high/critical Python dependency vulnerabilities found.')
+          PY
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: pre-commit-all-files
+        run: |
+          pip install pre-commit
+          pre-commit run --all-files
+      - name: trivy-fs-high-critical
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+
