@@ -23,8 +23,6 @@ sentry-sdk==2.14.0
 # Wallet signature verification
 eth-account==0.13.7
 
-# Image processing (needed from Step 4 — image perceptual hashing)
-Pillow>=10.4.0
 
 # Notes:
 # - OpenCV/transformers/librosa/web3/reportlab/sendgrid remain in requirements-optional.txt.
@@ -32,10 +30,10 @@ Pillow>=10.4.0
 slither-analyzer==0.11.5
 
 # Blockchain
-web3==6.11.3
+web3==7.10.0
 #
 # Image / ML / Audio (can be problematic on newest Python without wheels)
-Pillow==10.2.0
+Pillow==10.4.0
 opencv-python==4.9.0.80
 transformers==4.36.2
 librosa==0.10.1
