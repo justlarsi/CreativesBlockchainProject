@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     'apps.infringement',
     'apps.legal',
     'apps.collaboration',
+    'apps.analytics',
 ]
 
 # Custom user model
