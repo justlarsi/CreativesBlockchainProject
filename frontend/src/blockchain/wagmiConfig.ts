@@ -5,6 +5,10 @@ import { injected, walletConnect } from "wagmi/connectors";
 export const AMOY_CHAIN_ID = polygonAmoy.id;
 
 const walletConnectProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID?.trim() ?? "";
+const walletConnectMetadataUrl =
+  typeof window !== "undefined" && window.location?.origin
+    ? window.location.origin
+    : "https://creativechain.local";
 
 const connectors = [
   injected({ shimDisconnect: true }),
@@ -18,7 +22,7 @@ if (walletConnectProjectId) {
       metadata: {
         name: "CreativeChain",
         description: "CreativeChain wallet connection",
-        url: "https://creativechain.local",
+        url: walletConnectMetadataUrl,
         icons: [],
       },
     }),

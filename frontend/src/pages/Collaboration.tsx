@@ -1,8 +1,8 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, DollarSign, CheckCircle, ArrowRight, FileText, Percent, UserPlus } from "lucide-react";
+import { Plus, DollarSign, CheckCircle, ArrowRight, FileText, Percent, UserPlus, ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { approveCollaboration, listCollaborations, type CollaborationRecord } from "@/api/collaboration";
+import { approveCollaboration, listCollaborations, getCollaborationEarnings, getCollaborationContract, type CollaborationRecord } from "@/api/collaboration";
 import {
   Dialog,
   DialogContent,
@@ -13,9 +13,6 @@ import {
 
 const splitColors = ["bg-primary", "bg-accent", "bg-chart-3", "bg-chart-4"];
 
-function getAccessToken(): string {
-  return localStorage.getItem("access") || localStorage.getItem("access_token") || "";
-}
 
 function initials(value: string): string {
   const parts = value.split(" ").filter(Boolean);
@@ -49,24 +46,27 @@ function mapCollaborationForCard(collaboration: CollaborationRecord) {
 }
 
 export default function Collaboration() {
-  const accessToken = getAccessToken();
+  const accessToken = localStorage.getItem("access_token") || localStorage.getItem("access");
+  const isAuthenticated = Boolean(accessToken);
   const [newCollabOpen, setNewCollabOpen] = useState(false);
   const [collabForm, setCollabForm] = useState({ title: "", type: "Music", invite: "" });
   const [collaborations, setCollaborations] = useState<CollaborationRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<number | null>(null);
+  const [selectedCollabId, setSelectedCollabId] = useState<number | null>(null);
+  const [earningsData, setEarningsData] = useState<any>(null);
+  const [contractData, setContractData] = useState<any>(null);
+  const [showEarnings, setShowEarnings] = useState(false);
+  const [showContract, setShowContract] = useState(false);
+  const [isLoadingEarnings, setIsLoadingEarnings] = useState(false);
+  const [isLoadingContract, setIsLoadingContract] = useState(false);
 
   const loadCollaborations = useCallback(async () => {
-    if (!accessToken) {
-      setCollaborations([]);
-      setIsLoading(false);
-      return;
-    }
     setIsLoading(true);
     setError(null);
     try {
-      const records = await listCollaborations(accessToken);
+      const records = await listCollaborations(accessToken || undefined);
       setCollaborations(records);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load collaborations.");
@@ -74,6 +74,34 @@ export default function Collaboration() {
       setIsLoading(false);
     }
   }, [accessToken]);
+
+  const handleShowEarnings = async (collabId: number) => {
+    setSelectedCollabId(collabId);
+    setIsLoadingEarnings(true);
+    try {
+      const data = await getCollaborationEarnings(collabId);
+      setEarningsData(data);
+      setShowEarnings(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load earnings data");
+    } finally {
+      setIsLoadingEarnings(false);
+    }
+  };
+
+  const handleShowContract = async (collabId: number) => {
+    setSelectedCollabId(collabId);
+    setIsLoadingContract(true);
+    try {
+      const data = await getCollaborationContract(collabId);
+      setContractData(data);
+      setShowContract(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load contract data");
+    } finally {
+      setIsLoadingContract(false);
+    }
+  }
 
   useEffect(() => {
     void loadCollaborations();
@@ -83,7 +111,7 @@ export default function Collaboration() {
 
   async function handleApprove(collaborationId: number): Promise<void> {
     if (!accessToken) {
-      toast.error("Sign in first to approve collaborations.");
+      toast.error("Sign in to approve collaborations.");
       return;
     }
 
@@ -103,7 +131,7 @@ export default function Collaboration() {
   return (
     <AppLayout title="Collaboration" subtitle="Transparent multi-party revenue splits">
       <div className="space-y-5 animate-fade-in">
-        {!accessToken && (
+        {!isAuthenticated && (
           <div className="stat-card rounded-xl p-4">
             <p className="text-xs text-muted-foreground">Sign in to view and manage collaborations.</p>
           </div>
@@ -186,16 +214,28 @@ export default function Collaboration() {
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => toast.info("Earnings breakdown coming soon")}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-muted text-muted-foreground text-xs rounded-md hover:text-foreground transition-all"
+                  onClick={() => handleShowEarnings(collab.id)}
+                  disabled={isLoadingEarnings}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-muted text-muted-foreground text-xs rounded-md hover:text-foreground transition-all disabled:opacity-50"
                 >
-                  <DollarSign className="h-3 w-3" />Earnings
+                  {isLoadingEarnings ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <DollarSign className="h-3 w-3" />
+                  )}
+                  Earnings
                 </button>
                 <button
-                  onClick={() => toast.info("Smart contract viewer coming soon")}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-muted text-muted-foreground text-xs rounded-md hover:text-foreground transition-all"
+                  onClick={() => handleShowContract(collab.id)}
+                  disabled={isLoadingContract}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-muted text-muted-foreground text-xs rounded-md hover:text-foreground transition-all disabled:opacity-50"
                 >
-                  <FileText className="h-3 w-3" />Contract
+                  {isLoadingContract ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <FileText className="h-3 w-3" />
+                  )}
+                  Contract
                 </button>
                 {collab.canApprove ? (
                   <button
@@ -315,6 +355,91 @@ export default function Collaboration() {
               Create Collaboration
             </button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Earnings Breakdown Dialog */}
+      <Dialog open={showEarnings} onOpenChange={setShowEarnings}>
+        <DialogContent className="bg-card border-border max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display text-base">Earnings Breakdown</DialogTitle>
+            <DialogDescription className="text-xs">Revenue distribution across members</DialogDescription>
+          </DialogHeader>
+          {earningsData && (
+            <div className="space-y-3">
+              <div className="p-3 rounded-lg bg-primary/5 border border-primary/15">
+                <p className="text-xs text-muted-foreground mb-1">Total Earned</p>
+                <p className="text-2xl font-bold text-primary">{earningsData.total_earned.toFixed(2)} {earningsData.currency}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-2">Member Shares</p>
+                <div className="space-y-2">
+                  {earningsData.members.map((member: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-muted/50">
+                      <div>
+                        <p className="text-xs font-medium text-foreground">{member.username}</p>
+                        <p className="text-xs text-muted-foreground">{member.share_percentage}%</p>
+                      </div>
+                      <p className="text-xs font-semibold text-primary">{member.amount.toFixed(2)} {earningsData.currency}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {earningsData.last_distribution && (
+                <p className="text-xs text-muted-foreground">Last distribution: {new Date(earningsData.last_distribution).toLocaleDateString()}</p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Smart Contract Details Dialog */}
+      <Dialog open={showContract} onOpenChange={setShowContract}>
+        <DialogContent className="bg-card border-border max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display text-base">Smart Contract Details</DialogTitle>
+            <DialogDescription className="text-xs">View on-chain contract information</DialogDescription>
+          </DialogHeader>
+          {contractData && (
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-1">Contract Address</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-foreground font-mono truncate">{contractData.address}</p>
+                  <a
+                    href={`https://amoy.polygonscan.com/address/${contractData.address}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1 rounded hover:bg-muted transition-colors"
+                  >
+                    <ExternalLink className="h-3 w-3 text-primary" />
+                  </a>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-1">Transaction Hash</p>
+                <p className="text-xs text-foreground font-mono truncate">{contractData.tx_hash}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-1">Block Number</p>
+                <p className="text-xs text-foreground">{contractData.block_number}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-2">Members</p>
+                <div className="space-y-2">
+                  {contractData.members.map((member: any, i: number) => (
+                    <div key={i} className="p-2 rounded-lg bg-muted/50">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs font-medium text-foreground">{member.username}</p>
+                        <p className="text-xs text-primary font-semibold">{member.split_percentage}%</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground font-mono truncate">{member.wallet_address}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </AppLayout>

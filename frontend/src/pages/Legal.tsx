@@ -1,7 +1,9 @@
 import { AppLayout } from "@/components/AppLayout";
-import { useState } from "react";
-import { FileText, Send, Download, AlertTriangle, Shield, Clock, CheckCircle, Copy, ArrowRight } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { FileText, Send, Download, AlertTriangle, Shield, Clock, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
+import { downloadLegalDocument, generateLegalDocument, listLegalDocuments, type LegalDocument } from "@/api/legal";
+import { listWorks, type WorkRecord } from "@/api/works";
 import {
   Dialog,
   DialogContent,
@@ -34,35 +36,99 @@ const templates = [
   },
 ];
 
-const history = [
-  { type: "DMCA", target: "Pinterest Inc.", work: "Nairobi Skyline", date: "Feb 18, 2026", status: "sent" },
-  { type: "C&D", target: "ArtCopy Ltd.", work: "Abstract Series #14", date: "Feb 10, 2026", status: "acknowledged" },
-  { type: "Certificate", target: "—", work: "Botanical Illustrations", date: "Jan 28, 2026", status: "generated" },
-  { type: "DMCA", target: "TikTok", work: "Afrobeat Mix Vol. 3", date: "Jan 15, 2026", status: "resolved" },
-];
-
-const statusStyle: Record<string, string> = {
-  sent: "badge-pending",
-  acknowledged: "badge-verified",
-  generated: "badge-verified",
-  resolved: "badge-verified",
-};
-
 export default function Legal() {
   const [openDialog, setOpenDialog] = useState<string | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
+  const [documents, setDocuments] = useState<LegalDocument[]>([]);
+  const [works, setWorks] = useState<WorkRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isDownloading, setIsDownloading] = useState<number | null>(null);
 
-  const handleGenerate = (templateId: string) => {
-    setOpenDialog(null);
-    setFormData({});
-    if (templateId === "cert") {
-      toast.success("Certificate generated — download ready", { duration: 4000 });
-    } else if (templateId === "dmca") {
-      toast.success("DMCA notice generated and ready to send");
-    } else {
-      toast.success("Cease & Desist letter generated");
+  const availableWorks = useMemo(
+    () => works.filter((work) => work.status === "REGISTERED" || work.status === "IPFS_PINNING_COMPLETE"),
+    [works],
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadData() {
+      setIsLoading(true);
+      try {
+        const [docs, worksList] = await Promise.all([listLegalDocuments(), listWorks()]);
+        if (!isMounted) {
+          return;
+        }
+        setDocuments(docs);
+        setWorks(worksList);
+      } catch (err) {
+        if (!isMounted) {
+          return;
+        }
+        const message = err instanceof Error ? err.message : "Failed to load legal workspace.";
+        toast.error(message);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleDownload = async (documentId: number, documentLabel: string) => {
+    setIsDownloading(documentId);
+    try {
+      const blob = await downloadLegalDocument(documentId);
+      const objectUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = `${documentLabel}-${documentId}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to download document.";
+      toast.error(message);
+    } finally {
+      setIsDownloading(null);
     }
   };
+
+  const handleGenerate = async (templateId: string) => {
+    const workId = Number(formData.work_id || formData.work);
+    if (!workId) {
+      toast.error("Select a work before generating a legal document.");
+      return;
+    }
+
+    const documentType = templateId === "dmca" ? "dmca" : "cease_and_desist";
+
+    try {
+      const created = await generateLegalDocument({
+        document_type: documentType,
+        work_id: workId,
+      });
+      setDocuments((prev) => [created, ...prev]);
+      toast.success(documentType === "dmca" ? "DMCA notice generated." : "Cease & Desist letter generated.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to generate legal document.";
+      toast.error(message);
+      return;
+    }
+
+    setOpenDialog(null);
+    setFormData({});
+  };
+
+  const getDocumentLabel = (doc: LegalDocument): string =>
+    doc.document_type === "dmca" ? "DMCA Notice" : "Cease & Desist";
 
   return (
     <AppLayout title="Legal Tools" subtitle="Automated IP protection documents">
@@ -91,37 +157,44 @@ export default function Legal() {
         <div className="stat-card rounded-xl overflow-hidden">
           <div className="px-5 py-3 border-b border-border flex items-center justify-between">
             <h3 className="font-display font-semibold text-sm">Document History</h3>
-            <span className="text-xs text-muted-foreground">{history.length} documents</span>
+            <span className="text-xs text-muted-foreground">{documents.length} documents</span>
           </div>
-          <div className="divide-y divide-border/40">
-            {history.map((doc, i) => (
-              <div key={i} className="flex items-center justify-between px-5 py-3 hover:bg-muted/20 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center">
-                    <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-foreground">{doc.type} — {doc.work}</p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                      <span>{doc.target}</span>
-                      <span className="flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{doc.date}</span>
+          {isLoading ? (
+            <div className="px-5 py-8 text-center text-xs text-muted-foreground">Loading documents...</div>
+          ) : documents.length === 0 ? (
+            <div className="px-5 py-8 text-center text-xs text-muted-foreground">No documents generated yet. Create one above!</div>
+          ) : (
+            <div className="divide-y divide-border/40">
+              {documents.map((doc) => (
+                <div key={doc.id} className="flex items-center justify-between px-5 py-3 hover:bg-muted/20 transition-colors">
+                  <div className="flex items-center gap-3 flex-1">
+                    <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                      <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-foreground truncate">{getDocumentLabel(doc)} - {doc.work_title}</p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                        <span className="capitalize">{doc.document_type}</span>
+                        <span className="flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{new Date(doc.created_at).toLocaleDateString()}</span>
+                      </div>
                     </div>
                   </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs badge-verified px-2 py-0.5 rounded-full">Generated</span>
+                    <button
+                      onClick={() => {
+                        void handleDownload(doc.id, getDocumentLabel(doc));
+                      }}
+                      disabled={isDownloading === doc.id}
+                      className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs px-2 py-0.5 rounded-full capitalize ${statusStyle[doc.status]}`}>
-                    {doc.status}
-                  </span>
-                  <button
-                    onClick={() => toast.info("Document download coming soon")}
-                    className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* DMCA Dialog */}
@@ -135,7 +208,7 @@ export default function Legal() {
               {[
                 { key: "platform", label: "Platform", placeholder: "e.g. Pinterest, Instagram" },
                 { key: "url", label: "Infringing URL", placeholder: "https://..." },
-                { key: "work", label: "Your Work", placeholder: "Select or type work title" },
+                { key: "work_id", label: "Your Work ID", placeholder: "Enter registered work ID" },
               ].map((f) => (
                 <div key={f.key}>
                   <label className="text-xs font-medium text-muted-foreground mb-1 block">{f.label}</label>
@@ -148,7 +221,9 @@ export default function Legal() {
                 </div>
               ))}
               <button
-                onClick={() => handleGenerate("dmca")}
+                onClick={() => {
+                  void handleGenerate("dmca");
+                }}
                 className="w-full py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 transition-all mt-2"
               >
                 Generate & Send
@@ -167,7 +242,7 @@ export default function Legal() {
             <div className="space-y-3 mt-2">
               {[
                 { key: "recipient", label: "Recipient", placeholder: "Company or individual name" },
-                { key: "work", label: "Your Work", placeholder: "Select or type work title" },
+                { key: "work_id", label: "Your Work ID", placeholder: "Enter registered work ID" },
                 { key: "details", label: "Infringement Details", placeholder: "Describe the unauthorized use" },
               ].map((f) => (
                 <div key={f.key}>
@@ -191,7 +266,9 @@ export default function Legal() {
                 </div>
               ))}
               <button
-                onClick={() => handleGenerate("cd")}
+                onClick={() => {
+                  void handleGenerate("cd");
+                }}
                 className="w-full py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 transition-all mt-2"
               >
                 Generate Letter
@@ -212,14 +289,15 @@ export default function Legal() {
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Select Work</label>
                 <select
                   value={formData.work || ""}
-                  onChange={(e) => setFormData({ ...formData, work: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, work: e.target.value, work_id: e.target.value })}
                   className="w-full px-3 py-2 text-xs bg-muted rounded-lg border border-border focus:outline-none focus:border-primary/50 text-foreground transition-all"
                 >
                   <option value="">Choose a registered work</option>
-                  <option>Abstract Series #14</option>
-                  <option>Nairobi Skyline Collection</option>
-                  <option>Afrobeat Mix Vol. 3</option>
-                  <option>Botanical Illustrations Pack</option>
+                  {availableWorks.map((work) => (
+                    <option key={work.id} value={String(work.id)}>
+                      {work.title} (#{work.id})
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="p-3 rounded-lg bg-primary/5 border border-primary/15">
@@ -230,11 +308,14 @@ export default function Legal() {
                 <p className="text-xs text-muted-foreground">Certificate includes Polygon transaction hash, timestamp, and cryptographic fingerprint.</p>
               </div>
               <button
-                onClick={() => handleGenerate("cert")}
+                onClick={() => {
+                  toast.info("Use Document Templates above to generate DMCA or Cease & Desist documents.");
+                  setOpenDialog(null);
+                }}
                 className="w-full py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 transition-all mt-2 flex items-center justify-center gap-2"
               >
                 <Download className="h-3.5 w-3.5" />
-                Generate Certificate
+                Close
               </button>
             </div>
           </DialogContent>

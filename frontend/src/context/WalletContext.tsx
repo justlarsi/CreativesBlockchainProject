@@ -3,6 +3,7 @@ import { useAccount, useConnect, useDisconnect, useSignMessage, useSwitchChain }
 import { AMOY_CHAIN_ID, walletConnectEnabled } from "@/blockchain/wagmiConfig";
 import { isAmoyChain, walletErrorMessage } from "@/blockchain/wallet";
 import { createWalletChallenge, disconnectWallet as disconnectWalletApi, listWallets, verifyWalletChallenge, WalletRecord } from "@/api/wallet";
+import { useAuth } from "@/context/AuthContext";
 
 interface WalletContextValue {
   address?: string;
@@ -24,11 +25,8 @@ interface WalletContextValue {
 
 const WalletContext = createContext<WalletContextValue | null>(null);
 
-function getAccessToken(): string {
-  return localStorage.getItem("access") || localStorage.getItem("access_token") || "";
-}
-
 export function WalletProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { address, chainId, isConnected } = useAccount();
   const { connectAsync, connectors, isPending } = useConnect();
   const { disconnectAsync } = useDisconnect();
@@ -47,14 +45,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   const refreshWallets = async () => {
-    const token = getAccessToken();
-    if (!token) {
+    if (!isAuthenticated) {
       setWallets([]);
       return;
     }
 
     try {
-      const records = await listWallets(token);
+      const records = await listWallets();
       setWallets(records);
     } catch (refreshError) {
       setError(walletErrorMessage(refreshError));
@@ -62,8 +59,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    if (isAuthLoading) {
+      return;
+    }
+
+    if (!isAuthenticated) {
+      setWallets([]);
+      setError(undefined);
+      return;
+    }
+
     void refreshWallets();
-  }, []);
+  }, [isAuthenticated, isAuthLoading]);
 
   const connectWallet = async (connectorId?: string) => {
     setError(undefined);
@@ -92,6 +99,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const verifyConnectedWallet = async () => {
     setError(undefined);
 
+    if (!isAuthenticated) {
+      setError("Log in before linking a wallet.");
+      return;
+    }
+
     if (!address) {
       setError("Connect a wallet before verification.");
       return;
@@ -102,18 +114,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const token = getAccessToken();
-    if (!token) {
-      setError("Sign in first so CreativeChain can securely link your wallet.");
-      return;
-    }
-
     setIsVerifying(true);
     try {
-      const challenge = await createWalletChallenge(token, address);
+      const challenge = await createWalletChallenge(address);
       const signature = await signMessageAsync({ message: challenge.message });
 
-      await verifyWalletChallenge(token, {
+      await verifyWalletChallenge({
         challenge_id: challenge.challenge_id,
         signature,
         chain_id: chainId || AMOY_CHAIN_ID,
@@ -131,9 +137,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setError(undefined);
 
     try {
-      const token = getAccessToken();
-      if (walletId && token) {
-        await disconnectWalletApi(token, walletId);
+      if (walletId) {
+        await disconnectWalletApi(walletId);
       }
       await disconnectAsync();
       await refreshWallets();

@@ -13,6 +13,7 @@ export function shortenAddress(address?: string): string {
 
 export function walletErrorMessage(error: unknown): string {
   const maybeError = error as { code?: number; message?: string; name?: string } | null;
+  const message = maybeError?.message?.toLowerCase() || "";
 
   if (maybeError?.code === 4001) {
     return "Request rejected in wallet.";
@@ -22,7 +23,19 @@ export function walletErrorMessage(error: unknown): string {
     return "No wallet extension found. Install MetaMask or use WalletConnect.";
   }
 
-  if (maybeError?.message?.toLowerCase().includes("missing or invalid")) {
+  if (message.includes("connector not found")) {
+    return "Wallet connector unavailable. Install MetaMask or enable WalletConnect.";
+  }
+
+  if (message.includes("provider") && message.includes("not found")) {
+    return "Wallet provider not detected. Unlock MetaMask or refresh the page.";
+  }
+
+  if (message.includes("authentication credentials") || message.includes("not authorized") || message.includes("unauthorized")) {
+    return "Log in to link or manage wallets.";
+  }
+
+  if (message.includes("missing or invalid")) {
     return "Wallet action failed due to provider configuration.";
   }
 

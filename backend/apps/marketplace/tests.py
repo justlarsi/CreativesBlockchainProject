@@ -129,3 +129,26 @@ class MarketplaceAPITests(APITestCase):
 		second = self.client.get(MARKETPLACE_BASE)
 		self.assertEqual(second.status_code, status.HTTP_200_OK)
 		self.assertEqual(second.data['results'][0]['title'], 'Cached Title')
+
+	def test_cache_is_scoped_by_query_params(self):
+		image_work = self._create_work(title='Image Listing', status=CreativeWork.Status.REGISTERED)
+		self._create_listing(image_work, is_listed=True, license_type='personal', price='10.00')
+
+		text_work = CreativeWork.objects.create(
+			owner=self.creator,
+			title='Text Listing',
+			description='Text listing description',
+			category=CreativeWork.Category.TEXT,
+			status=CreativeWork.Status.REGISTERED,
+		)
+		self._create_listing(text_work, is_listed=True, license_type='personal', price='12.00')
+
+		image_only = self.client.get(f'{MARKETPLACE_BASE}?category=image')
+		self.assertEqual(image_only.status_code, status.HTTP_200_OK)
+		self.assertEqual(len(image_only.data['results']), 1)
+		self.assertEqual(image_only.data['results'][0]['title'], 'Image Listing')
+
+		text_only = self.client.get(f'{MARKETPLACE_BASE}?category=text')
+		self.assertEqual(text_only.status_code, status.HTTP_200_OK)
+		self.assertEqual(len(text_only.data['results']), 1)
+		self.assertEqual(text_only.data['results'][0]['title'], 'Text Listing')

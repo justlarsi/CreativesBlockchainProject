@@ -1,14 +1,15 @@
 """
 Marketplace views
 """
+import hashlib
 from decimal import Decimal, InvalidOperation
 
+from django.core.cache import cache
 from django.db.models import Q
-from django.utils.decorators import method_decorator
-from django.views.decorators.cache import cache_page
 from rest_framework import generics
-from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
 
 from apps.works.models import CreativeWork
 
@@ -17,12 +18,28 @@ from .pagination import MarketplaceCursorPagination
 from .serializers import MarketplaceListingDetailSerializer, MarketplaceListingListSerializer
 
 
-@method_decorator(cache_page(60), name='dispatch')
 class MarketplaceListView(generics.ListAPIView):
     """Browse marketplace"""
+    CACHE_TTL_SECONDS = 60
+
     permission_classes = [AllowAny]
     serializer_class = MarketplaceListingListSerializer
     pagination_class = MarketplaceCursorPagination
+
+    def _build_cache_key(self) -> str:
+        # Cache key must include the exact request path + query string.
+        digest = hashlib.sha256(self.request.get_full_path().encode('utf-8')).hexdigest()
+        return f'marketplace:list:{digest}'
+
+    def list(self, request, *args, **kwargs):
+        cache_key = self._build_cache_key()
+        cached_payload = cache.get(cache_key)
+        if cached_payload is not None:
+            return Response(cached_payload)
+
+        response = super().list(request, *args, **kwargs)
+        cache.set(cache_key, response.data, timeout=self.CACHE_TTL_SECONDS)
+        return response
 
     def get_queryset(self):
         queryset = (

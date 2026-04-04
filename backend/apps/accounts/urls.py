@@ -10,6 +10,7 @@ urlpatterns = [
     path('refresh/', views.CustomTokenRefreshView.as_view(), name='refresh'),
     path('logout/', views.LogoutView.as_view(), name='logout'),
     path('me/', views.UserProfileView.as_view(), name='profile'),
+    path('password-change/', views.PasswordChangeView.as_view(), name='password-change'),
     path('wallets/', views.WalletListView.as_view(), name='wallet-list'),
     path('wallets/challenge/', views.WalletChallengeView.as_view(), name='wallet-challenge'),
     path('wallets/verify/', views.WalletVerifyView.as_view(), name='wallet-verify'),

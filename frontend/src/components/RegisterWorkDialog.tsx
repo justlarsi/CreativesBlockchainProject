@@ -23,9 +23,6 @@ const detailFields: Array<{ key: "title" | "description"; label: string; placeho
   { key: "description", label: "Description", placeholder: "Brief description of your work" },
 ];
 
-function getAccessToken(): string {
-  return localStorage.getItem("access") || localStorage.getItem("access_token") || "";
-}
 
 export function RegisterWorkDialog({ open, onOpenChange, onRegistered }: RegisterWorkDialogProps) {
   const [step, setStep] = useState(0);
@@ -60,20 +57,14 @@ export function RegisterWorkDialog({ open, onOpenChange, onRegistered }: Registe
       return;
     }
 
-    const accessToken = getAccessToken();
-    if (!accessToken) {
-      toast.error("Sign in first to register your work.");
-      return;
-    }
-
     setProcessing(true);
     try {
-      const created = await createWorkMetadata(accessToken, {
+      const created = await createWorkMetadata({
         title: formData.title,
         description: formData.description,
         category: formData.category,
       });
-      await uploadWorkBinary(accessToken, created.id, formData.file);
+      await uploadWorkBinary(created.id, formData.file);
       toast.success("Work uploaded successfully.", { duration: 4000 });
       await onRegistered?.();
       reset();

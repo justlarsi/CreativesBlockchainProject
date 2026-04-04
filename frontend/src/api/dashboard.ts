@@ -1,3 +1,5 @@
+import { authenticatedFetchJson } from "./interceptors";
+
 export interface DashboardQueryParams {
   start_date?: string;
   end_date?: string;
@@ -48,41 +50,6 @@ export interface CreatorDashboardResponse {
   revenue_over_time: DashboardRevenuePoint[];
 }
 
-const apiBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-
-function getAuthHeaders(accessToken: string): HeadersInit {
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${accessToken}`,
-  };
-}
-
-function extractErrorMessage(data: unknown): string {
-  if (!data || typeof data !== "object") {
-    return "Dashboard API request failed.";
-  }
-
-  const payload = data as Record<string, unknown>;
-  const errorPayload = payload.error as Record<string, unknown> | undefined;
-  if (errorPayload && typeof errorPayload.message === "string") {
-    return errorPayload.message;
-  }
-
-  if (typeof payload.detail === "string") {
-    return payload.detail;
-  }
-
-  return "Dashboard API request failed.";
-}
-
-async function parseJsonOrThrow(response: Response) {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(extractErrorMessage(data));
-  }
-  return data;
-}
-
 function buildQueryString(params?: DashboardQueryParams): string {
   if (!params) {
     return "";
@@ -105,10 +72,9 @@ export async function getCreatorDashboard(
   params?: DashboardQueryParams,
 ): Promise<CreatorDashboardResponse> {
   const queryString = buildQueryString(params);
-  const response = await fetch(`${apiBase}/api/v1/analytics/dashboard/${queryString}`, {
-    method: "GET",
-    headers: getAuthHeaders(accessToken),
-  });
-  return parseJsonOrThrow(response);
+  return authenticatedFetchJson<CreatorDashboardResponse>(
+    `/api/v1/analytics/dashboard/${queryString}`,
+    { method: "GET" }
+  );
 }
 

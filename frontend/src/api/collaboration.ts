@@ -1,3 +1,13 @@
+import { authenticatedFetchJson } from "./interceptors";
+
+function withAuthHeader(token: string | null | undefined, headers?: HeadersInit): Headers {
+  const nextHeaders = new Headers(headers || {});
+  if (token) {
+    nextHeaders.set("Authorization", `Bearer ${token}`);
+  }
+  return nextHeaders;
+}
+
 export type CollaborationStatus =
   | "PENDING_APPROVAL"
   | "APPROVED"
@@ -36,57 +46,83 @@ export interface CollaborationRecord {
   updated_at: string;
 }
 
-const apiBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-
-function getAuthHeaders(accessToken: string): HeadersInit {
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${accessToken}`,
-  };
+export async function listCollaborations(token?: string): Promise<CollaborationRecord[]> {
+  return authenticatedFetchJson<CollaborationRecord[]>(
+    `/api/v1/collaborations/`,
+    {
+      method: "GET",
+      headers: withAuthHeader(token),
+    }
+  );
 }
 
-function extractErrorMessage(data: unknown): string {
-  if (!data || typeof data !== "object") {
-    return "Collaboration API request failed.";
+export async function approveCollaboration(
+  tokenOrCollaborationId: string | number,
+  maybeCollaborationId?: number,
+): Promise<unknown> {
+  const token = typeof tokenOrCollaborationId === "string" ? tokenOrCollaborationId : null;
+  const collaborationId =
+    typeof tokenOrCollaborationId === "string"
+      ? maybeCollaborationId
+      : tokenOrCollaborationId;
+
+  if (!collaborationId) {
+    throw new Error("Missing collaboration id");
   }
 
-  const payload = data as Record<string, unknown>;
-  const errorPayload = payload.error as Record<string, unknown> | undefined;
-  if (errorPayload && typeof errorPayload.message === "string") {
-    return errorPayload.message;
-  }
-
-  if (typeof payload.detail === "string") {
-    return payload.detail;
-  }
-
-  return "Collaboration API request failed.";
+  return authenticatedFetchJson<unknown>(
+    `/api/v1/collaborations/${collaborationId}/approve/`,
+    {
+      method: "PATCH",
+      headers: withAuthHeader(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ approved: true }),
+    }
+  );
 }
 
-async function parseJsonOrThrow<T>(response: Response): Promise<T> {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(extractErrorMessage(data));
-  }
-  return data as T;
+export interface EarningsInfo {
+  total_earned: number;
+  currency: string;
+  members: Array<{
+    username: string;
+    share_percentage: number;
+    amount: number;
+  }>;
+  last_distribution: string;
 }
 
-export async function listCollaborations(accessToken: string): Promise<CollaborationRecord[]> {
-  const response = await fetch(`${apiBase}/api/v1/collaborations/`, {
-    method: "GET",
-    headers: getAuthHeaders(accessToken),
-  });
-
-  return parseJsonOrThrow<CollaborationRecord[]>(response);
+export interface ContractInfo {
+  address: string;
+  tx_hash: string;
+  block_number: number;
+  creator: string;
+  members: Array<{
+    username: string;
+    wallet_address: string;
+    split_percentage: number;
+  }>;
 }
 
-export async function approveCollaboration(accessToken: string, collaborationId: number): Promise<unknown> {
-  const response = await fetch(`${apiBase}/api/v1/collaborations/${collaborationId}/approve/`, {
-    method: "PATCH",
-    headers: getAuthHeaders(accessToken),
-    body: JSON.stringify({ approved: true }),
-  });
-
-  return parseJsonOrThrow<unknown>(response);
+/**
+ * Get earnings breakdown for a collaboration
+ */
+export async function getCollaborationEarnings(
+  collaborationId: number,
+): Promise<EarningsInfo> {
+  return authenticatedFetchJson<EarningsInfo>(
+    `/api/v1/collaborations/${collaborationId}/earnings/`,
+    { method: "GET" }
+  );
 }
 
+/**
+ * Get smart contract details for a collaboration
+ */
+export async function getCollaborationContract(
+  collaborationId: number,
+): Promise<ContractInfo> {
+  return authenticatedFetchJson<ContractInfo>(
+    `/api/v1/collaborations/${collaborationId}/contract/`,
+    { method: "GET" }
+  );
+}

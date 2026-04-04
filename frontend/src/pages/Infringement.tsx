@@ -20,7 +20,7 @@ const statusConfig = {
 
 export default function Infringement() {
   const navigate = useNavigate();
-  const accessToken = localStorage.getItem("access") || localStorage.getItem("access_token") || "";
+  const accessToken = localStorage.getItem("access_token") || localStorage.getItem("access");
 
   const [alerts, setAlerts] = useState<InfringementAlertRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,15 +30,10 @@ export default function Infringement() {
   const [updatingAlertId, setUpdatingAlertId] = useState<number | null>(null);
 
   const loadAlerts = useCallback(async () => {
-    if (!accessToken) {
-      setAlerts([]);
-      setIsLoading(false);
-      return;
-    }
     setIsLoading(true);
     setError(null);
     try {
-      const records = await listInfringementAlerts(accessToken);
+      const records = await listInfringementAlerts(accessToken || undefined);
       setAlerts(records);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load infringement alerts.");
@@ -62,12 +57,9 @@ export default function Infringement() {
   );
 
   const updateStatus = async (alertId: number, status: InfringementStatus) => {
-    if (!accessToken) {
-      return;
-    }
     setUpdatingAlertId(alertId);
     try {
-      const updated = await updateInfringementAlertStatus(accessToken, alertId, { status });
+      const updated = await updateInfringementAlertStatus(accessToken || undefined, alertId, { status });
       setAlerts((prev) => prev.map((item) => (item.id === alertId ? updated : item)));
       toast.success(`Alert marked as ${status.replace(/_/g, " ")}.`);
     } catch (err) {
@@ -79,10 +71,6 @@ export default function Infringement() {
   };
 
   const runSimulatedScan = async () => {
-    if (!accessToken) {
-      toast.error("Sign in first to run a scan.");
-      return;
-    }
     const workId = Number(scanWorkId);
     if (!workId) {
       toast.error("Enter a valid work ID to run a simulated scan.");
@@ -91,7 +79,7 @@ export default function Infringement() {
 
     setIsScanning(true);
     try {
-      await triggerInfringementScan(accessToken, {
+      await triggerInfringementScan(accessToken || undefined, {
         work_id: workId,
         candidates: [
           {
@@ -115,11 +103,6 @@ export default function Infringement() {
   return (
     <AppLayout title="Infringement Detection" subtitle="AI-powered 24/7 monitoring">
       <div className="space-y-5 animate-fade-in">
-        {!accessToken && (
-          <div className="stat-card rounded-xl p-4">
-            <p className="text-xs text-muted-foreground">Sign in to view and manage your infringement alerts.</p>
-          </div>
-        )}
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -161,7 +144,7 @@ export default function Infringement() {
               onClick={() => {
                 void runSimulatedScan();
               }}
-              disabled={isScanning || !accessToken}
+              disabled={isScanning}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-md hover:bg-primary/90 transition-all disabled:opacity-50"
             >
               <Zap className="h-3 w-3" />

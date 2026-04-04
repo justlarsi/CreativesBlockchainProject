@@ -8,10 +8,6 @@ import { getCreatorDashboard, type CreatorDashboardResponse, type DashboardQuery
 
 type DateRangePreset = "30d" | "90d" | "365d" | "all";
 
-function getAccessToken(): string {
-  return localStorage.getItem("access") || localStorage.getItem("access_token") || "";
-}
-
 function formatDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -57,21 +53,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     let isMounted = true;
-    const token = getAccessToken();
-
-    if (!token) {
-      setDashboard(null);
-      setError("You are not authenticated. Sign in to view dashboard analytics.");
-      setIsLoading(false);
-      return () => {
-        isMounted = false;
-      };
-    }
 
     setIsLoading(true);
     setError(null);
 
-    getCreatorDashboard(token, getRangeParams(preset))
+    getCreatorDashboard("", getRangeParams(preset))
       .then((data) => {
         if (isMounted) {
           setDashboard(data);

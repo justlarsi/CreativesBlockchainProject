@@ -1,5 +1,7 @@
 import { NavLink } from "@/components/NavLink";
-import { useLocation } from "react-router-dom";
+import { CreativechainLogo } from "@/components/CreativechainLogo";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard,
   BookOpen,
@@ -41,14 +43,35 @@ const bottomNav = [
 
 export function AppSidebar() {
   const { state } = useSidebar();
+  const navigate = useNavigate();
+  const { logout, user } = useAuth();
   const collapsed = state === "collapsed";
+
+  const getInitials = (user: typeof user) => {
+    if (!user) return "U";
+    if (user.first_name && user.last_name) {
+      return `${user.first_name[0]}${user.last_name[0]}`.toUpperCase();
+    }
+    if (user.username) {
+      return user.username.slice(0, 2).toUpperCase();
+    }
+    return "U";
+  };
+
+  const getUserDisplayName = (user: typeof user) => {
+    if (!user) return "User";
+    if (user.first_name && user.last_name) {
+      return `${user.first_name} ${user.last_name}`;
+    }
+    return user.username;
+  };
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
       <SidebarHeader className="py-6 px-4">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 glow-border shrink-0">
-            <Hexagon className="h-5 w-5 text-primary" />
+            <CreativechainLogo className="h-5 w-5 text-primary" />
           </div>
           {!collapsed && (
             <div>
@@ -110,7 +133,19 @@ export function AppSidebar() {
           ))}
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
-              <button className="flex w-full items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground hover:bg-destructive/10 hover:text-destructive transition-all duration-200">
+              <button
+                onClick={async () => {
+                  try {
+                    await logout();
+                    navigate("/login");
+                  } catch (err) {
+                    console.error("Logout failed:", err);
+                    // Still navigate even if logout fails
+                    navigate("/login");
+                  }
+                }}
+                className="flex w-full items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground hover:bg-destructive/10 hover:text-destructive transition-all duration-200"
+              >
                 <LogOut className="h-4 w-4 shrink-0" />
                 {!collapsed && <span className="text-sm font-medium">Sign Out</span>}
               </button>
@@ -122,11 +157,11 @@ export function AppSidebar() {
           <div className="mt-4 mx-1 rounded-xl p-3 bg-primary/5 border border-primary/20">
             <div className="flex items-center gap-2 mb-2">
               <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center">
-                <span className="text-xs font-bold text-primary">AK</span>
+                <span className="text-xs font-bold text-primary">{getInitials(user)}</span>
               </div>
               <div>
-                <p className="text-xs font-semibold text-foreground">Amara Kamau</p>
-                <p className="text-xs text-muted-foreground">Creator Pro</p>
+                <p className="text-xs font-semibold text-foreground">{getUserDisplayName(user)}</p>
+                <p className="text-xs text-muted-foreground">{user?.email || "No email"}</p>
               </div>
             </div>
             <div className="flex items-center gap-1">

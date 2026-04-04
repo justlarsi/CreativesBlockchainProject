@@ -44,7 +44,7 @@ export function WalletConnect() {
               size="sm"
               variant="outline"
               onClick={() => void connectWallet(connector.id)}
-              disabled={isConnecting || !connector.ready}
+              disabled={isConnecting}
               className="h-8 text-xs"
             >
               {isConnecting ? "Connecting..." : `Connect ${connector.name}`}

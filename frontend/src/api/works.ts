@@ -1,3 +1,13 @@
+import { authenticatedFetch, authenticatedFetchJson } from "./interceptors";
+
+function withAuthHeader(token: string | null | undefined, headers?: HeadersInit): Headers {
+  const nextHeaders = new Headers(headers || {});
+  if (token) {
+    nextHeaders.set("Authorization", `Bearer ${token}`);
+  }
+  return nextHeaders;
+}
+
 export interface ContentHash {
   id: number;
   hash_type: "sha256" | "perceptual_avg" | "text_normalized";
@@ -51,98 +61,161 @@ export interface BlockchainReceiptQueuedResponse {
   max_retries: number;
 }
 
-const apiBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-
-function getAuthHeaders(accessToken: string): HeadersInit {
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${accessToken}`,
-  };
-}
-
-function extractErrorMessage(data: unknown): string {
-  if (!data || typeof data !== "object") {
-    return "Works API request failed.";
-  }
-
-  const payload = data as Record<string, unknown>;
-  const errorPayload = payload.error as Record<string, unknown> | undefined;
-  if (errorPayload && typeof errorPayload.message === "string") {
-    return errorPayload.message;
-  }
-
-  if (typeof payload.detail === "string") {
-    return payload.detail;
-  }
-
-  return "Works API request failed.";
-}
-
-async function parseJsonOrThrow(response: Response) {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(extractErrorMessage(data));
-  }
-  return data;
-}
-
-export async function listWorks(accessToken: string): Promise<WorkRecord[]> {
-  const response = await fetch(`${apiBase}/api/v1/works/`, {
-    method: "GET",
-    headers: getAuthHeaders(accessToken),
-  });
-  const data = await parseJsonOrThrow(response);
+export async function listWorks(token?: string): Promise<WorkRecord[]> {
+  const data = await authenticatedFetchJson<{ results: WorkRecord[] }>(
+    `/api/v1/works/`,
+    {
+      method: "GET",
+      headers: withAuthHeader(token),
+    }
+  );
   return data.results || [];
 }
 
 export async function createWorkMetadata(
-  accessToken: string,
-  payload: Pick<WorkRecord, "title" | "description" | "category">,
+  tokenOrPayload: string | Pick<WorkRecord, "title" | "description" | "category">,
+  maybePayload?: Pick<WorkRecord, "title" | "description" | "category">,
 ): Promise<WorkRecord> {
-  const response = await fetch(`${apiBase}/api/v1/works/`, {
-    method: "POST",
-    headers: getAuthHeaders(accessToken),
-    body: JSON.stringify(payload),
-  });
-  return parseJsonOrThrow(response);
+  const token = typeof tokenOrPayload === "string" ? tokenOrPayload : null;
+  const payload = typeof tokenOrPayload === "string" ? maybePayload : tokenOrPayload;
+
+  if (!payload) {
+    throw new Error("Missing work metadata payload");
+  }
+
+  return authenticatedFetchJson<WorkRecord>(
+    `/api/v1/works/`,
+    {
+      method: "POST",
+      headers: withAuthHeader(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    }
+  );
 }
 
-export async function uploadWorkBinary(accessToken: string, workId: number, file: File): Promise<WorkRecord> {
+export async function uploadWorkBinary(
+  tokenOrWorkId: string | number,
+  workIdOrFile: number | File,
+  maybeFile?: File,
+): Promise<WorkRecord> {
+  const token = typeof tokenOrWorkId === "string" ? tokenOrWorkId : null;
+  const workId = typeof tokenOrWorkId === "string" ? (workIdOrFile as number) : tokenOrWorkId;
+  const file = typeof tokenOrWorkId === "string" ? maybeFile : (workIdOrFile as File);
+
+  if (!file) {
+    throw new Error("Missing file for upload");
+  }
+
   const body = new FormData();
   body.append("file", file);
 
-  const response = await fetch(`${apiBase}/api/v1/works/${workId}/upload/`, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body,
-  });
-  return parseJsonOrThrow(response);
+  const response = await authenticatedFetch(
+    `/api/v1/works/${workId}/upload/`,
+    {
+      method: "PUT",
+      headers: withAuthHeader(token),
+      body,
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.detail || data?.error || "Upload failed");
+  }
+
+  return data as WorkRecord;
 }
 
 export async function prepareBlockchainRegistration(
-  accessToken: string,
-  workId: number,
+  tokenOrWorkId: string | number,
+  maybeWorkId?: number,
 ): Promise<BlockchainTxPayload> {
-  const response = await fetch(`${apiBase}/api/v1/works/${workId}/register-blockchain/prepare/`, {
-    method: "POST",
-    headers: getAuthHeaders(accessToken),
-    body: JSON.stringify({}),
-  });
-  return parseJsonOrThrow(response);
+  const token = typeof tokenOrWorkId === "string" ? tokenOrWorkId : null;
+  const workId = typeof tokenOrWorkId === "string" ? maybeWorkId : tokenOrWorkId;
+
+  if (!workId) {
+    throw new Error("Missing work id");
+  }
+
+  return authenticatedFetchJson<BlockchainTxPayload>(
+    `/api/v1/works/${workId}/register-blockchain/prepare/`,
+    {
+      method: "POST",
+      headers: withAuthHeader(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify({}),
+    }
+  );
 }
 
 export async function submitBlockchainReceipt(
-  accessToken: string,
-  workId: number,
-  txHash: string,
+  tokenOrWorkId: string | number,
+  workIdOrTxHash: number | string,
+  maybeTxHash?: string,
 ): Promise<BlockchainReceiptQueuedResponse> {
-  const response = await fetch(`${apiBase}/api/v1/works/${workId}/register-blockchain/receipt/`, {
-    method: "POST",
-    headers: getAuthHeaders(accessToken),
-    body: JSON.stringify({ tx_hash: txHash }),
-  });
-  return parseJsonOrThrow(response);
+  const token = typeof tokenOrWorkId === "string" ? tokenOrWorkId : null;
+  const workId = typeof tokenOrWorkId === "string" ? (workIdOrTxHash as number) : tokenOrWorkId;
+  const txHash = typeof tokenOrWorkId === "string" ? maybeTxHash : (workIdOrTxHash as string);
+
+  if (!txHash) {
+    throw new Error("Missing transaction hash");
+  }
+
+  return authenticatedFetchJson<BlockchainReceiptQueuedResponse>(
+    `/api/v1/works/${workId}/register-blockchain/receipt/`,
+    {
+      method: "POST",
+      headers: withAuthHeader(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ tx_hash: txHash }),
+    }
+  );
 }
 
+export interface UpdateWorkMetadataPayload {
+  title?: string;
+  description?: string;
+  category?: string;
+}
+
+/**
+ * Update work metadata (title, description, category)
+ */
+export async function updateWorkMetadata(
+  workId: number,
+  payload: UpdateWorkMetadataPayload,
+): Promise<WorkRecord> {
+  return authenticatedFetchJson<WorkRecord>(
+    `/api/v1/works/${workId}/`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+/**
+ * Get detailed information about a work
+ */
+export async function getWorkDetails(workId: number): Promise<WorkRecord> {
+  return authenticatedFetchJson<WorkRecord>(
+    `/api/v1/works/${workId}/`,
+    { method: "GET" }
+  );
+}
+
+/**
+ * Download work certificate (proof of registration)
+ */
+export async function downloadWorkCertificate(workId: number): Promise<Blob> {
+  const response = await authenticatedFetch(
+    `/api/v1/works/${workId}/certificate/`,
+    { method: "GET" }
+  );
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data?.detail || "Failed to download certificate");
+  }
+
+  return response.blob();
+}

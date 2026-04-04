@@ -122,6 +122,25 @@ class RegisterBlockchainPrepareView(generics.GenericAPIView):
     def post(self, request, *args, **kwargs):
         work = self.get_object()
 
+        if work.status == CreativeWork.Status.REGISTERED:
+            raise ValidationError({'detail': 'Work is already registered on-chain.'})
+
+        if work.status == CreativeWork.Status.BLOCKCHAIN_REGISTRATION_PENDING:
+            raise ValidationError({'detail': 'Blockchain registration is already pending for this work.'})
+
+        allowed_prepare_statuses = {
+            CreativeWork.Status.IPFS_PINNING_COMPLETE,
+            CreativeWork.Status.BLOCKCHAIN_REGISTRATION_FAILED,
+        }
+        if work.status not in allowed_prepare_statuses:
+            raise ValidationError(
+                {
+                    'detail': (
+                        'Work must be IPFS pinned before blockchain registration can be prepared.'
+                    )
+                }
+            )
+
         collaboration = getattr(work, 'collaboration', None)
         if collaboration and collaboration.status != Collaboration.Status.APPROVED:
             raise ValidationError(
@@ -152,6 +171,22 @@ class RegisterBlockchainReceiptView(generics.GenericAPIView):
 
         if work.status == CreativeWork.Status.REGISTERED:
             raise ValidationError({'detail': 'Work is already registered on-chain.'})
+
+        if work.status == CreativeWork.Status.BLOCKCHAIN_REGISTRATION_PENDING:
+            raise ValidationError({'detail': 'Blockchain registration receipt is already pending verification.'})
+
+        allowed_receipt_statuses = {
+            CreativeWork.Status.IPFS_PINNING_COMPLETE,
+            CreativeWork.Status.BLOCKCHAIN_REGISTRATION_FAILED,
+        }
+        if work.status not in allowed_receipt_statuses:
+            raise ValidationError(
+                {
+                    'detail': (
+                        'Work is not ready for receipt submission. Prepare blockchain registration first.'
+                    )
+                }
+            )
 
         tx_hash = serializer.validated_data['tx_hash']
         set_registration_pending(work, tx_hash)

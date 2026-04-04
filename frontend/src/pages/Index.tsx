@@ -1,6 +1,8 @@
 import heroBg from "@/assets/hero-bg.jpg";
 import { useNavigate } from "react-router-dom";
-import { Shield, Eye, FileCheck, Zap, Users, Globe, ArrowRight, CheckCircle, Hexagon, Lock, TrendingUp } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { CreativechainLogo } from "@/components/CreativechainLogo";
+import { Shield, Eye, FileCheck, Zap, Users, Globe, ArrowRight, CheckCircle, Lock, TrendingUp, Hexagon } from "lucide-react";
 
 const features = [
   { icon: Shield, title: "Blockchain Ownership", description: "Immutable proof of creation timestamped on Polygon — undisputable in any legal proceeding." },
@@ -20,6 +22,15 @@ const stats = [
 
 export default function Index() {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+
+  const handleGetStarted = () => {
+    if (isAuthenticated) {
+      navigate("/dashboard");
+    } else {
+      navigate("/login");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background font-body">
@@ -27,7 +38,7 @@ export default function Index() {
       <nav className="fixed top-0 w-full z-50 border-b border-border/40 bg-background/90 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Hexagon className="h-4 w-4 text-primary" />
+            <CreativechainLogo className="h-4 w-4 text-primary" />
             <span className="font-display font-bold text-base">
               <span className="text-foreground">Creative</span><span className="text-primary">Chain</span>
             </span>
@@ -38,11 +49,11 @@ export default function Index() {
             <a href="#stats" className="hover:text-foreground transition-colors">Impact</a>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate("/dashboard")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Sign In
+            <button onClick={() => navigate(isAuthenticated ? "/dashboard" : "/login")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              {isAuthenticated ? "Dashboard" : "Sign In"}
             </button>
-            <button onClick={() => navigate("/dashboard")} className="text-sm font-semibold bg-primary text-primary-foreground px-4 py-1.5 rounded-lg hover:bg-primary/90 transition-all">
-              Get Started
+            <button onClick={handleGetStarted} className="text-sm font-semibold bg-primary text-primary-foreground px-4 py-1.5 rounded-lg hover:bg-primary/90 transition-all">
+              {isAuthenticated ? "Go to Dashboard" : "Get Started"}
             </button>
           </div>
         </div>
@@ -70,7 +81,7 @@ export default function Index() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <button
-              onClick={() => navigate("/dashboard")}
+              onClick={handleGetStarted}
               className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground font-semibold rounded-xl hover:bg-primary/90 transition-all shadow-teal group text-sm"
             >
               Start Protecting
@@ -164,7 +175,7 @@ export default function Index() {
           </h2>
           <p className="text-muted-foreground text-sm mb-8">Join thousands of Kenyan creators securing their IP on the blockchain.</p>
           <button
-            onClick={() => navigate("/dashboard")}
+            onClick={handleGetStarted}
             className="inline-flex items-center gap-2 px-8 py-3 bg-primary text-primary-foreground font-semibold rounded-xl hover:bg-primary/90 transition-all shadow-teal text-sm"
           >
             Launch Dashboard

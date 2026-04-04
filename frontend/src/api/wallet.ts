@@ -1,3 +1,5 @@
+import { authenticatedFetchJson, authenticatedFetch } from "./interceptors";
+
 export interface WalletRecord {
   id: number;
   address: string;
@@ -12,58 +14,43 @@ export interface WalletChallenge {
   expires_at: string;
 }
 
-const apiBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-
-function authHeaders(accessToken: string) {
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${accessToken}`,
-  };
-}
-
-async function parseJsonOrThrow(response: Response) {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data?.detail || "Wallet API request failed.");
-  }
-  return data;
-}
-
-export async function listWallets(accessToken: string): Promise<WalletRecord[]> {
-  const response = await fetch(`${apiBase}/api/v1/auth/wallets/`, {
-    method: "GET",
-    headers: authHeaders(accessToken),
-  });
-  const data = await parseJsonOrThrow(response);
+export async function listWallets(): Promise<WalletRecord[]> {
+  const data = await authenticatedFetchJson<{ results: WalletRecord[] }>(
+    `/api/v1/auth/wallets/`,
+    { method: "GET" }
+  );
   return data.results || [];
 }
 
-export async function createWalletChallenge(accessToken: string, address: string): Promise<WalletChallenge> {
-  const response = await fetch(`${apiBase}/api/v1/auth/wallets/challenge/`, {
-    method: "POST",
-    headers: authHeaders(accessToken),
-    body: JSON.stringify({ address }),
-  });
-  return parseJsonOrThrow(response);
+export async function createWalletChallenge(address: string): Promise<WalletChallenge> {
+  return authenticatedFetchJson<WalletChallenge>(
+    `/api/v1/auth/wallets/challenge/`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address }),
+    }
+  );
 }
 
 export async function verifyWalletChallenge(
-  accessToken: string,
   payload: { challenge_id: number; signature: string; chain_id: number },
 ): Promise<WalletRecord> {
-  const response = await fetch(`${apiBase}/api/v1/auth/wallets/verify/`, {
-    method: "POST",
-    headers: authHeaders(accessToken),
-    body: JSON.stringify(payload),
-  });
-  return parseJsonOrThrow(response);
+  return authenticatedFetchJson<WalletRecord>(
+    `/api/v1/auth/wallets/verify/`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
 }
 
-export async function disconnectWallet(accessToken: string, walletId: number): Promise<void> {
-  const response = await fetch(`${apiBase}/api/v1/auth/wallets/${walletId}/`, {
-    method: "DELETE",
-    headers: authHeaders(accessToken),
-  });
+export async function disconnectWallet(walletId: number): Promise<void> {
+  const response = await authenticatedFetch(
+    `/api/v1/auth/wallets/${walletId}/`,
+    { method: "DELETE" }
+  );
 
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));

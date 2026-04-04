@@ -21,6 +21,7 @@ function buildIdempotencyKey(): string {
 
 export default function MarketplaceWorkDetailPage() {
   const { workId } = useParams();
+  const accessToken = localStorage.getItem("access_token") || localStorage.getItem("access");
   const [item, setItem] = useState<MarketplaceWorkDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +33,6 @@ export default function MarketplaceWorkDetailPage() {
   const { isConnected, isCorrectChain } = useWalletContext();
   const { sendTransactionAsync } = useSendTransaction();
 
-  const accessToken = localStorage.getItem("access") || localStorage.getItem("access_token") || "";
 
   useEffect(() => {
     if (!workId) {
@@ -76,9 +76,6 @@ export default function MarketplaceWorkDetailPage() {
     setPurchaseMessage(null);
 
     try {
-      if (!accessToken) {
-        throw new Error("Sign in first to purchase a license.");
-      }
       if (!isConnected) {
         throw new Error("Connect your wallet before purchasing a license.");
       }
@@ -87,7 +84,7 @@ export default function MarketplaceWorkDetailPage() {
       }
 
       const rightsScope: RightsScope = item.license_type === "personal" ? "non_commercial" : "commercial";
-      const prepared = await prepareLicensePurchase(accessToken, {
+      const prepared = await prepareLicensePurchase({
         work_id: item.work_id,
         template: item.license_type,
         rights_scope: rightsScope,
@@ -99,7 +96,7 @@ export default function MarketplaceWorkDetailPage() {
         value: BigInt(prepared.value),
       });
 
-      const receiptResult = await submitLicenseReceipt(accessToken, {
+      const receiptResult = await submitLicenseReceipt(accessToken || "", {
         purchase_id: prepared.purchase_id,
         idempotency_key: buildIdempotencyKey(),
         tx_hash: txHash,

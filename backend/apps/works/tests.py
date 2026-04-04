@@ -398,6 +398,32 @@ class BlockchainRegistrationFlowTests(APITestCase):
         self.assertIn('data', response.data)
         self.assertTrue(response.data['data'].startswith('0x'))
 
+    def test_prepare_rejects_when_work_not_ready(self):
+        self.work.status = CreativeWork.Status.UPLOADED
+        self.work.save(update_fields=['status', 'updated_at'])
+
+        response = self.client.post(
+            f'{WORKS_BASE}{self.work.id}/register-blockchain/prepare/',
+            {},
+            format='json',
+            **auth_header(self.user),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('IPFS pinned', str(response.data))
+
+    def test_prepare_rejects_when_registration_already_pending(self):
+        self.work.status = CreativeWork.Status.BLOCKCHAIN_REGISTRATION_PENDING
+        self.work.save(update_fields=['status', 'updated_at'])
+
+        response = self.client.post(
+            f'{WORKS_BASE}{self.work.id}/register-blockchain/prepare/',
+            {},
+            format='json',
+            **auth_header(self.user),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('already pending', str(response.data))
+
     @patch('apps.works.tasks.verify_work_registration_receipt_task.delay')
     def test_receipt_endpoint_returns_202_and_queues_task(self, mock_delay):
         tx_hash = '0x' + 'b' * 64
@@ -416,6 +442,35 @@ class BlockchainRegistrationFlowTests(APITestCase):
         self.assertEqual(self.work.status, CreativeWork.Status.BLOCKCHAIN_REGISTRATION_PENDING)
         self.assertEqual(self.work.blockchain_tx_hash, tx_hash)
         mock_delay.assert_called_once_with(self.work.id, tx_hash)
+
+    def test_receipt_rejects_when_status_not_ready(self):
+        self.work.status = CreativeWork.Status.PROCESSING_COMPLETE
+        self.work.save(update_fields=['status', 'updated_at'])
+
+        response = self.client.post(
+            f'{WORKS_BASE}{self.work.id}/register-blockchain/receipt/',
+            {'tx_hash': '0x' + 'd' * 64},
+            format='json',
+            **auth_header(self.user),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('not ready for receipt submission', str(response.data))
+
+    def test_receipt_rejects_when_already_pending(self):
+        self.work.status = CreativeWork.Status.BLOCKCHAIN_REGISTRATION_PENDING
+        self.work.blockchain_tx_hash = '0x' + 'd' * 64
+        self.work.save(update_fields=['status', 'blockchain_tx_hash', 'updated_at'])
+
+        response = self.client.post(
+            f'{WORKS_BASE}{self.work.id}/register-blockchain/receipt/',
+            {'tx_hash': '0x' + 'e' * 64},
+            format='json',
+            **auth_header(self.user),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('already pending verification', str(response.data))
 
     @patch('apps.works.services_blockchain.verify_registration_receipt')
     def test_receipt_task_marks_work_registered(self, mock_verify):

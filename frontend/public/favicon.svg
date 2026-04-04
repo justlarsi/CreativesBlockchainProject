@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="30" fill="#7c3aed" opacity="0.95"/>
+
+  <!-- Hexagon shape for CreativeChain brand -->
+  <path d="M32 12 L48 20 L48 36 L32 44 L16 36 L16 20 Z" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+
+  <!-- Center detail - chain link concept -->
+  <circle cx="28" cy="28" r="3.5" fill="#7c3aed"/>
+  <circle cx="36" cy="28" r="3.5" fill="#7c3aed"/>
+  <line x1="31.5" y1="28" x2="32.5" y2="28" stroke="#7c3aed" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Small accent -->
+  <circle cx="32" cy="36" r="2" fill="#7c3aed" opacity="0.7"/>
+</svg>
