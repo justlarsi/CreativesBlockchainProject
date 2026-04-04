@@ -65,7 +65,7 @@ export function RegisterWorkDialog({ open, onOpenChange, onRegistered }: Registe
         category: formData.category,
       });
       await uploadWorkBinary(created.id, formData.file);
-      toast.success("Work uploaded successfully.", { duration: 4000 });
+      toast.success(`Work uploaded successfully. Work ID: #${created.id}`, { duration: 5000 });
       await onRegistered?.();
       reset();
       onOpenChange(false);

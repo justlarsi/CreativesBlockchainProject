@@ -85,3 +85,20 @@ class InfringementScanTriggerSerializer(serializers.Serializer):
     work_id = serializers.IntegerField()
     candidates = SimulatedSourceCandidateSerializer(many=True)
 
+
+class InfringementPublicScanSerializer(serializers.Serializer):
+    work_id = serializers.IntegerField(min_value=1)
+    platforms = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        required=False,
+        allow_empty=True,
+    )
+
+
+class InfringementLegacyCleanupSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(
+        choices=['hide', 'delete'],
+        required=False,
+        default='hide',
+    )
+

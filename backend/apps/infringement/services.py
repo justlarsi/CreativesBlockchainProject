@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import re
+from html import unescape
 from datetime import timedelta
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse
+
+import requests
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -11,6 +15,16 @@ from django.utils import timezone
 from apps.works.models import ContentHash, CreativeWork
 
 from .models import InfringementAlert, build_source_fingerprint
+
+
+_DDG_RESULT_LINK_RE = re.compile(
+    r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+    re.IGNORECASE | re.DOTALL,
+)
+_DDG_RESULT_SNIPPET_RE = re.compile(
+    r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>|<div[^>]*class="result__snippet"[^>]*>(.*?)</div>',
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def _tokenize_text(value: str) -> set[str]:
@@ -217,4 +231,107 @@ def default_daily_candidates_for_work(work: CreativeWork) -> list[dict[str, Any]
 def recently_notified(alert: InfringementAlert) -> bool:
     cooldown = timedelta(minutes=settings.INFRINGEMENT_NOTIFICATION_COOLDOWN_MINUTES)
     return timezone.now() - alert.created_at < cooldown
+
+
+def _clean_html_text(raw: str) -> str:
+    no_tags = re.sub(r'<[^>]+>', ' ', raw or '')
+    collapsed = re.sub(r'\s+', ' ', no_tags)
+    return unescape(collapsed).strip()
+
+
+def _extract_ddg_target_url(href: str) -> str:
+    href = unescape(href or '').strip()
+    if href.startswith('/l/?'):
+        query = parse_qs(urlparse(href).query)
+        encoded_target = query.get('uddg', [''])[0]
+        return unquote(encoded_target) if encoded_target else ''
+    return href
+
+
+def _safe_platform(value: str) -> str:
+    host = (value or '').strip().lower()
+    if not host:
+        return ''
+    if host.startswith('http://') or host.startswith('https://'):
+        return (urlparse(host).hostname or '').lower()
+    return host
+
+
+def _default_platforms() -> list[str]:
+    return [
+        'instagram.com',
+        'tiktok.com',
+        'pinterest.com',
+        'youtube.com',
+        'reddit.com',
+        'facebook.com',
+        'x.com',
+    ]
+
+
+def _discover_ddg_results(query: str, max_results: int) -> list[dict[str, str]]:
+    response = requests.get(
+        f'https://duckduckgo.com/html/?q={quote_plus(query)}',
+        timeout=settings.INFRINGEMENT_PUBLIC_SCAN_TIMEOUT_SEC,
+        headers={'User-Agent': 'CreativeChainBot/1.0 (+https://creativechain.local)'},
+    )
+    response.raise_for_status()
+
+    snippets = _DDG_RESULT_SNIPPET_RE.findall(response.text)
+    snippet_values = [_clean_html_text(item[0] or item[1]) for item in snippets]
+
+    results: list[dict[str, str]] = []
+    for index, (href, title_html) in enumerate(_DDG_RESULT_LINK_RE.findall(response.text)):
+        source_url = _extract_ddg_target_url(href)
+        if not source_url.startswith('http://') and not source_url.startswith('https://'):
+            continue
+
+        parsed = urlparse(source_url)
+        if not parsed.hostname:
+            continue
+
+        results.append(
+            {
+                'source_url': source_url,
+                'source_platform': parsed.hostname.lower(),
+                'title': _clean_html_text(title_html),
+                'description': snippet_values[index] if index < len(snippet_values) else '',
+            }
+        )
+        if len(results) >= max_results:
+            break
+
+    return results
+
+
+def discover_public_candidates_for_work(
+    work: CreativeWork,
+    *,
+    platforms: list[str] | None = None,
+    max_results: int | None = None,
+) -> tuple[list[dict[str, str]], list[str]]:
+    final_platforms = [p for p in (_safe_platform(item) for item in (platforms or [])) if p]
+    if not final_platforms:
+        final_platforms = _default_platforms()
+
+    max_items = max_results or settings.INFRINGEMENT_PUBLIC_SCAN_MAX_RESULTS
+    max_items = max(1, min(max_items, 50))
+
+    query_base = ' '.join(part for part in [work.title.strip(), work.description.strip()] if part).strip()
+    if not query_base:
+        query_base = f'work {work.id}'
+
+    dedup: dict[str, dict[str, str]] = {}
+    for platform in final_platforms:
+        query = f'"{work.title}" {work.description} site:{platform}'.strip()
+        try:
+            for result in _discover_ddg_results(query or query_base, max_items):
+                dedup.setdefault(result['source_url'], result)
+        except requests.RequestException:
+            continue
+
+        if len(dedup) >= max_items:
+            break
+
+    return list(dedup.values())[:max_items], final_platforms
 

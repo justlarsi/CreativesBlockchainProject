@@ -45,8 +45,7 @@ class InfringementStep10Tests(APITestCase):
 			hash_value='a' * 64,
 		)
 
-	@patch('apps.infringement.views.scan_work_for_infringement_task.delay')
-	def test_scan_trigger_queues_task_for_owned_work(self, mock_delay):
+	def test_scan_trigger_processes_owned_work_immediately(self):
 		response = self.client.post(
 			f'{INFRINGEMENT_BASE}scan/',
 			{
@@ -65,7 +64,11 @@ class InfringementStep10Tests(APITestCase):
 		)
 
 		self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-		mock_delay.assert_called_once()
+		self.assertEqual(response.data['status'], 'processed')
+		self.assertEqual(response.data['work_id'], self.work.id)
+		self.assertEqual(response.data['matched_candidates'], 1)
+		self.assertEqual(len(response.data['created_alert_ids']), 1)
+		self.assertEqual(InfringementAlert.objects.count(), 1)
 
 	def test_scan_trigger_rejects_work_not_owned_by_user(self):
 		response = self.client.post(
@@ -78,6 +81,36 @@ class InfringementStep10Tests(APITestCase):
 			**auth_header(self.other_user),
 		)
 		self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+	@patch('apps.infringement.views.discover_public_candidates_for_work')
+	def test_public_scan_discovers_candidates_and_creates_alerts(self, mock_discover):
+		mock_discover.return_value = (
+			[
+				{
+					'source_url': 'https://instagram.com/p/mock123',
+					'source_platform': 'instagram.com',
+					'source_hash': 'a' * 64,
+					'title': 'Nairobi Skyline',
+					'description': 'Golden skyline photo set',
+				}
+			],
+			['instagram.com'],
+		)
+
+		response = self.client.post(
+			f'{INFRINGEMENT_BASE}scan/public/',
+			{'work_id': self.work.id, 'platforms': ['instagram.com']},
+			format='json',
+			**auth_header(self.creator),
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+		self.assertEqual(response.data['status'], 'processed')
+		self.assertEqual(response.data['work_id'], self.work.id)
+		self.assertEqual(response.data['scanned_candidates'], 1)
+		self.assertEqual(response.data['matched_candidates'], 1)
+		self.assertEqual(len(response.data['created_alert_ids']), 1)
+		self.assertEqual(response.data['platforms'], ['instagram.com'])
 
 	def test_scan_task_creates_alert_and_deduplicates_open_alert(self):
 		payload = [
@@ -181,3 +214,66 @@ class InfringementStep10Tests(APITestCase):
 			**auth_header(self.creator),
 		)
 		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+	def test_cleanup_legacy_alerts_hides_or_deletes_only_mock_platform_entries(self):
+		legacy_open = InfringementAlert.objects.create(
+			creator=self.creator,
+			work=self.work,
+			source_url='https://mock-platform.example/scan/123',
+			source_platform='mock-platform.example',
+			source_fingerprint='1' * 64,
+			similarity_score=0.8,
+			severity=InfringementAlert.Severity.MEDIUM,
+			status=InfringementAlert.Status.PENDING,
+		)
+		legacy_closed = InfringementAlert.objects.create(
+			creator=self.creator,
+			work=self.work,
+			source_url='https://mock-platform.example/scan/456',
+			source_platform='mock-platform.example',
+			source_fingerprint='2' * 64,
+			similarity_score=0.7,
+			severity=InfringementAlert.Severity.LOW,
+			status=InfringementAlert.Status.FALSE_POSITIVE,
+		)
+		non_legacy = InfringementAlert.objects.create(
+			creator=self.creator,
+			work=self.work,
+			source_url='https://instagram.com/p/real',
+			source_platform='instagram.com',
+			source_fingerprint='3' * 64,
+			similarity_score=0.9,
+			severity=InfringementAlert.Severity.HIGH,
+			status=InfringementAlert.Status.PENDING,
+		)
+
+		hide_response = self.client.post(
+			f'{INFRINGEMENT_BASE}alerts/cleanup-legacy/',
+			{'mode': 'hide'},
+			format='json',
+			**auth_header(self.creator),
+		)
+		self.assertEqual(hide_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(hide_response.data['total_legacy'], 2)
+		self.assertEqual(hide_response.data['hidden_count'], 1)
+
+		legacy_open.refresh_from_db()
+		legacy_closed.refresh_from_db()
+		non_legacy.refresh_from_db()
+		self.assertEqual(legacy_open.status, InfringementAlert.Status.FALSE_POSITIVE)
+		self.assertEqual(legacy_closed.status, InfringementAlert.Status.FALSE_POSITIVE)
+		self.assertEqual(non_legacy.status, InfringementAlert.Status.PENDING)
+
+		delete_response = self.client.post(
+			f'{INFRINGEMENT_BASE}alerts/cleanup-legacy/',
+			{'mode': 'delete'},
+			format='json',
+			**auth_header(self.creator),
+		)
+		self.assertEqual(delete_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(delete_response.data['mode'], 'delete')
+		self.assertEqual(delete_response.data['total_legacy'], 2)
+		self.assertEqual(delete_response.data['deleted_count'], 3)
+		self.assertEqual(delete_response.data['deleted_active_count'], 1)
+		self.assertEqual(InfringementAlert.objects.filter(source_platform='mock-platform.example').count(), 0)
+		self.assertEqual(InfringementAlert.objects.filter(id=non_legacy.id).count(), 0)

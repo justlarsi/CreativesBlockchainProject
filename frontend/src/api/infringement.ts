@@ -51,6 +51,11 @@ export interface SimulatedSourceCandidate {
   description?: string;
 }
 
+export interface PublicInfringementScanPayload {
+  work_id: number;
+  platforms?: string[];
+}
+
 export async function listInfringementAlerts(token?: string): Promise<InfringementAlertRecord[]> {
   const data = await authenticatedFetchJson<InfringementAlertListResponse>(
     `/api/v1/infringement/alerts/`,
@@ -88,7 +93,13 @@ export async function updateInfringementAlertStatus(
 export async function triggerInfringementScan(
   tokenOrPayload: string | { work_id: number; candidates: SimulatedSourceCandidate[] },
   maybePayload?: { work_id: number; candidates: SimulatedSourceCandidate[] },
-): Promise<{ status: string; work_id: number; candidates_count: number }> {
+): Promise<{
+  status: string;
+  work_id: number;
+  candidates_count: number;
+  matched_candidates?: number;
+  created_alert_ids?: number[];
+}> {
   const token = typeof tokenOrPayload === "string" ? tokenOrPayload : null;
   const payload = typeof tokenOrPayload === "string" ? maybePayload : tokenOrPayload;
 
@@ -96,12 +107,88 @@ export async function triggerInfringementScan(
     throw new Error("Missing scan payload");
   }
 
-  return authenticatedFetchJson<{ status: string; work_id: number; candidates_count: number }>(
+  return authenticatedFetchJson<{
+    status: string;
+    work_id: number;
+    candidates_count: number;
+    matched_candidates?: number;
+    created_alert_ids?: number[];
+  }>(
     `/api/v1/infringement/scan/`,
     {
       method: "POST",
       headers: withAuthHeader(token, { "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function triggerPublicInfringementScan(
+  tokenOrPayload: string | PublicInfringementScanPayload,
+  maybePayload?: PublicInfringementScanPayload,
+): Promise<{
+  status: string;
+  work_id: number;
+  scanned_candidates: number;
+  matched_candidates: number;
+  created_alert_ids: number[];
+  platforms: string[];
+}> {
+  const token = typeof tokenOrPayload === "string" ? tokenOrPayload : null;
+  const payload = typeof tokenOrPayload === "string" ? maybePayload : tokenOrPayload;
+
+  if (!payload) {
+    throw new Error("Missing public scan payload");
+  }
+
+  return authenticatedFetchJson<{
+    status: string;
+    work_id: number;
+    scanned_candidates: number;
+    matched_candidates: number;
+    created_alert_ids: number[];
+    platforms: string[];
+  }>(
+    `/api/v1/infringement/scan/public/`,
+    {
+      method: "POST",
+      headers: withAuthHeader(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function cleanupLegacyInfringementAlerts(
+  tokenOrMode?: string | "hide" | "delete",
+  maybeMode?: "hide" | "delete",
+): Promise<{
+  status: string;
+  mode: "hide" | "delete";
+  total_legacy: number;
+  hidden_count: number;
+  deleted_count: number;
+  deleted_active_count: number;
+}> {
+  const token = typeof tokenOrMode === "string" && (tokenOrMode === "hide" || tokenOrMode === "delete")
+    ? null
+    : (tokenOrMode as string | undefined);
+  const mode = typeof tokenOrMode === "string" && (tokenOrMode === "hide" || tokenOrMode === "delete")
+    ? tokenOrMode
+    : (maybeMode || "hide");
+
+  return authenticatedFetchJson<{
+    status: string;
+    mode: "hide" | "delete";
+    total_legacy: number;
+    hidden_count: number;
+    deleted_count: number;
+    deleted_active_count: number;
+  }>(
+    `/api/v1/infringement/alerts/cleanup-legacy/`,
+    {
+      method: "POST",
+      headers: withAuthHeader(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ mode }),
     }
   );
 }

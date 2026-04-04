@@ -4,6 +4,7 @@ import { Plus, Search, Grid, List, Shield, Eye, MoreHorizontal, Hash, Clock, Loa
 import { RegisterWorkDialog } from "@/components/RegisterWorkDialog";
 import { toast } from "sonner";
 import { WorkRecord, listWorks, downloadWorkCertificate, updateWorkMetadata } from "@/api/works";
+import { triggerPublicInfringementScan } from "@/api/infringement";
 import { useRegisterWorkOnChain } from "@/hooks/useRegisterWorkOnChain";
 import {
   DropdownMenu,
@@ -111,6 +112,7 @@ export default function Works() {
   const [editFormData, setEditFormData] = useState({ title: "", description: "", category: "" });
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [scanningWorkId, setScanningWorkId] = useState<number | null>(null);
   const { registeringWorkId, handleRegisterOnChain } = useRegisterWorkOnChain();
 
   const refreshWorks = async () => {
@@ -175,6 +177,19 @@ export default function Works() {
       toast.error(error instanceof Error ? error.message : "Failed to download certificate");
     } finally {
       setIsDownloading(false);
+    }
+  };
+
+  const handleScanWork = async (work: WorkRecord) => {
+    setScanningWorkId(work.id);
+    try {
+      const response = await triggerPublicInfringementScan({ work_id: work.id });
+      const matched = response.matched_candidates ?? 0;
+      toast.success(`Scan finished for #${work.id}. ${matched} match(es) found.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Public scan failed. Please try again.");
+    } finally {
+      setScanningWorkId(null);
     }
   };
 
@@ -244,24 +259,26 @@ export default function Works() {
           </div>
         ) : view === "grid" ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map((work) => (
-                <div key={work.id} className="stat-card rounded-xl overflow-hidden group cursor-pointer">
-                  <div className={`h-32 ${work.color} flex items-center justify-center overflow-hidden`}>
-                    {work.mediaKind === "image" && work.mediaUrl ? (
-                      <img src={work.mediaUrl} alt={work.title} className="h-full w-full object-cover" loading="lazy" />
-                    ) : work.mediaKind === "video" && work.mediaUrl ? (
-                      <video src={work.mediaUrl} className="h-full w-full object-cover" muted playsInline preload="metadata" />
-                    ) : work.mediaKind === "audio" ? (
+            {filtered.map((workCard) => {
+              const rawWork = works.find((item) => item.id === workCard.workId);
+              return (
+                <div key={workCard.id} className="stat-card rounded-xl overflow-hidden group cursor-pointer">
+                  <div className={`h-32 ${workCard.color} flex items-center justify-center overflow-hidden`}>
+                    {workCard.mediaKind === "image" && workCard.mediaUrl ? (
+                      <img src={workCard.mediaUrl} alt={workCard.title} className="h-full w-full object-cover" loading="lazy" />
+                    ) : workCard.mediaKind === "video" && workCard.mediaUrl ? (
+                      <video src={workCard.mediaUrl} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+                    ) : workCard.mediaKind === "audio" ? (
                       <span className="text-4xl">🎵</span>
                     ) : (
-                      <span className="text-4xl">{work.emoji}</span>
+                      <span className="text-4xl">{workCard.emoji}</span>
                     )}
                   </div>
                   <div className="p-4">
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1 min-w-0 pr-2">
-                        <h3 className="font-semibold text-xs text-foreground truncate">{work.title}</h3>
-                        <p className="text-xs text-muted-foreground">{work.type}</p>
+                        <h3 className="font-semibold text-xs text-foreground truncate">{workCard.title}</h3>
+                        <p className="text-xs text-muted-foreground">{workCard.type}</p>
                       </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -270,27 +287,38 @@ export default function Works() {
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="bg-card border-border text-xs">
-                          <DropdownMenuItem onClick={() => handleViewDetails(work)} className="text-xs flex items-center gap-2">
+                          <DropdownMenuItem onClick={() => rawWork && handleViewDetails(rawWork)} className="text-xs flex items-center gap-2" disabled={!rawWork}>
                             <Eye className="h-3 w-3" />
                             View Details
                           </DropdownMenuItem>
-                          {work.status === "IPFS_PINNING_COMPLETE" || work.status === "BLOCKCHAIN_REGISTRATION_FAILED" && (
+                          {workCard.status === "IPFS_PINNING_COMPLETE" || workCard.status === "BLOCKCHAIN_REGISTRATION_FAILED" && (
                             <DropdownMenuItem
-                              onClick={() => void handleRegisterOnChain(work.id)}
-                              disabled={registeringWorkId === work.id}
+                              onClick={() => void handleRegisterOnChain(workCard.workId)}
+                              disabled={registeringWorkId === workCard.workId}
                               className="text-xs"
                             >
-                              {registeringWorkId === work.id ? "Submitting on-chain..." : "Register on Blockchain"}
+                              {registeringWorkId === workCard.workId ? "Submitting on-chain..." : "Register on Blockchain"}
                             </DropdownMenuItem>
                           )}
-                          <DropdownMenuItem onClick={() => handleEditMetadata(work)} className="text-xs flex items-center gap-2">
+                          <DropdownMenuItem onClick={() => rawWork && handleEditMetadata(rawWork)} className="text-xs flex items-center gap-2" disabled={!rawWork}>
                             <Edit className="h-3 w-3" />
                             Edit Metadata
                           </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              if (rawWork) {
+                                void handleScanWork(rawWork);
+                              }
+                            }}
+                            disabled={scanningWorkId === workCard.workId || !rawWork}
+                            className="text-xs"
+                          >
+                            {scanningWorkId === workCard.workId ? "Scanning..." : "Scan this work"}
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => toast.success("Link copied to clipboard")} className="text-xs">Share Link</DropdownMenuItem>
-                          {work.status === "REGISTERED" && (
+                          {workCard.status === "REGISTERED" && (
                             <DropdownMenuItem 
-                              onClick={() => handleDownloadCertificate(work.id)}
+                              onClick={() => handleDownloadCertificate(workCard.workId)}
                               disabled={isDownloading}
                               className="text-xs flex items-center gap-2"
                             >
@@ -302,39 +330,51 @@ export default function Works() {
                       </DropdownMenu>
                     </div>
                     <div className="flex items-center justify-between mb-2.5">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${work.statusConfig.class} cursor-help`} title={work.status}>
-                        {work.statusConfig.label}
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${workCard.statusConfig.class} cursor-help`} title={workCard.status}>
+                        {workCard.statusConfig.label}
                       </span>
-                      <span className="text-xs text-muted-foreground font-mono">#{work.workId}</span>
+                      <span className="text-xs text-muted-foreground font-mono">#{workCard.workId}</span>
                     </div>
                     <div className="flex items-center gap-1 mb-3 px-2 py-1.5 rounded-md bg-muted/50">
                       <Hash className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
                       <span className="text-xs font-mono text-muted-foreground truncate">
-                        {work.txHash ? `${work.txHash.slice(0, 10)}...` : work.hash}
+                        {workCard.txHash ? `${workCard.txHash.slice(0, 10)}...` : workCard.hash}
                       </span>
                     </div>
-                    {work.mediaKind === "audio" && work.mediaUrl && (
+                    {workCard.mediaKind === "audio" && workCard.mediaUrl && (
                       <audio controls preload="metadata" className="w-full h-8 mb-3">
-                        <source src={work.mediaUrl} />
+                        <source src={workCard.mediaUrl} />
                         Your browser does not support audio playback.
                       </audio>
                     )}
-                    {work.chainError && (
-                      <p className="text-xs text-red-400 mb-2 truncate" title={work.chainError}>
-                        {work.chainError}
+                    {workCard.chainError && (
+                      <p className="text-xs text-red-400 mb-2 truncate" title={workCard.chainError}>
+                        {workCard.chainError}
                       </p>
                     )}
+                    <button
+                      onClick={() => {
+                        if (rawWork) {
+                          void handleScanWork(rawWork);
+                        }
+                      }}
+                      disabled={scanningWorkId === workCard.workId || !rawWork}
+                      className="w-full mb-2 py-1.5 bg-muted text-muted-foreground text-xs rounded-md hover:text-foreground transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {scanningWorkId === workCard.workId ? "Scanning..." : "Scan this work"}
+                    </button>
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <div className="flex items-center gap-3">
-                        <span className="flex items-center gap-1"><Shield className="h-2.5 w-2.5 text-primary" />{work.blockNumber || work.licenses}</span>
-                        <span className="flex items-center gap-1"><Eye className="h-2.5 w-2.5" />{work.views}</span>
+                        <span className="flex items-center gap-1"><Shield className="h-2.5 w-2.5 text-primary" />{workCard.blockNumber || workCard.licenses}</span>
+                        <span className="flex items-center gap-1"><Eye className="h-2.5 w-2.5" />{workCard.views}</span>
                       </div>
-                      {registeringWorkId === work.workId && <Loader2 className="h-3 w-3 animate-spin" />}
-                      <span className="flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{work.registered}</span>
+                      {registeringWorkId === workCard.workId && <Loader2 className="h-3 w-3 animate-spin" />}
+                      <span className="flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{workCard.registered}</span>
                     </div>
                   </div>
                 </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="stat-card rounded-xl overflow-hidden">
@@ -347,7 +387,7 @@ export default function Works() {
                     <div className={`h-8 w-8 rounded-lg ${work.color} flex items-center justify-center shrink-0 text-base`}>{work.emoji}</div>
                     <div>
                       <p className="text-xs font-medium text-foreground">{work.title}</p>
-                      <p className="text-xs font-mono text-muted-foreground">{work.hash}</p>
+                      <p className="text-xs font-mono text-muted-foreground">#{work.workId} · {work.hash}</p>
                     </div>
                   </div>
                   <span className="text-xs text-muted-foreground">{work.type}</span>
@@ -374,6 +414,10 @@ export default function Works() {
               <div>
                 <p className="text-xs font-semibold text-muted-foreground mb-1">Title</p>
                 <p className="text-sm text-foreground">{selectedWork.title}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-1">Work ID</p>
+                <p className="text-sm text-foreground font-mono">#{selectedWork.id}</p>
               </div>
               <div>
                 <p className="text-xs font-semibold text-muted-foreground mb-1">Description</p>

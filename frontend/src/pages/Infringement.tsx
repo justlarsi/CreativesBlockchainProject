@@ -4,12 +4,14 @@ import { AlertTriangle, Eye, FileText, CheckCircle, Clock, Globe, Shield, Zap, E
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import {
+  cleanupLegacyInfringementAlerts,
   listInfringementAlerts,
-  triggerInfringementScan,
+  triggerPublicInfringementScan,
   type InfringementAlertRecord,
   type InfringementStatus,
   updateInfringementAlertStatus,
 } from "@/api/infringement";
+import { listWorks, type WorkRecord } from "@/api/works";
 
 const statusConfig = {
   pending: { label: "Pending", class: "badge-flagged", icon: AlertTriangle },
@@ -18,15 +20,25 @@ const statusConfig = {
   resolved: { label: "Resolved", class: "badge-verified", icon: CheckCircle },
 };
 
+function isLegacyMockSource(url: string): boolean {
+  try {
+    return new URL(url).hostname === "mock-platform.example";
+  } catch {
+    return false;
+  }
+}
+
 export default function Infringement() {
   const navigate = useNavigate();
   const accessToken = localStorage.getItem("access_token") || localStorage.getItem("access");
 
   const [alerts, setAlerts] = useState<InfringementAlertRecord[]>([]);
+  const [works, setWorks] = useState<WorkRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [scanWorkId, setScanWorkId] = useState("");
   const [isScanning, setIsScanning] = useState(false);
+  const [isCleaningLegacy, setIsCleaningLegacy] = useState(false);
   const [updatingAlertId, setUpdatingAlertId] = useState<number | null>(null);
 
   const loadAlerts = useCallback(async () => {
@@ -45,6 +57,22 @@ export default function Infringement() {
   useEffect(() => {
     void loadAlerts();
   }, [loadAlerts]);
+
+  useEffect(() => {
+    const loadWorks = async () => {
+      try {
+        const records = await listWorks(accessToken || undefined);
+        setWorks(records);
+        if (!scanWorkId && records.length > 0) {
+          setScanWorkId(String(records[0].id));
+        }
+      } catch {
+        // Keep scan input usable even if works query fails.
+      }
+    };
+
+    void loadWorks();
+  }, [accessToken]);
 
   const scanStats = useMemo(
     () => [
@@ -70,33 +98,53 @@ export default function Infringement() {
     }
   };
 
-  const runSimulatedScan = async () => {
+  const runPublicScan = async () => {
     const workId = Number(scanWorkId);
     if (!workId) {
       toast.error("Enter a valid work ID to run a simulated scan.");
       return;
     }
 
+    const selectedWork = works.find((item) => item.id === workId);
+    if (!selectedWork) {
+      toast.error("Select one of your works before running a simulated scan.");
+      return;
+    }
+
     setIsScanning(true);
     try {
-      await triggerInfringementScan(accessToken || undefined, {
-        work_id: workId,
-        candidates: [
-          {
-            source_url: `https://mock-platform.example/scan/${Date.now()}`,
-            source_platform: "mock-platform.example",
-            title: "Simulated possible match",
-            description: "Generated from dashboard trigger",
-          },
-        ],
-      });
-      toast.success("Simulated scan queued.");
+      const response = await triggerPublicInfringementScan(accessToken || undefined, { work_id: workId });
+      const matched = response.matched_candidates ?? 0;
+      toast.success(`Scan finished. ${matched} match(es) found.`);
       await loadAlerts();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to trigger simulated scan.";
       toast.error(message);
     } finally {
       setIsScanning(false);
+    }
+  };
+
+  const handleCleanupLegacyAlerts = async () => {
+    const confirmed = window.confirm(
+      "Delete legacy simulated alerts and all active cases (pending/confirmed)? This cannot be undone.",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsCleaningLegacy(true);
+    try {
+      const result = await cleanupLegacyInfringementAlerts(accessToken || undefined, "delete");
+      toast.success(
+        `Cleanup completed. Deleted ${result.deleted_count} alert(s), including ${result.deleted_active_count} active case(s).`,
+      );
+      await loadAlerts();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to cleanup legacy alerts.";
+      toast.error(message);
+    } finally {
+      setIsCleaningLegacy(false);
     }
   };
 
@@ -134,21 +182,36 @@ export default function Infringement() {
             <p className="text-xs font-semibold text-primary">On demand + daily schedule</p>
           </div>
           <div className="flex items-center gap-2">
-            <input
+            <select
               value={scanWorkId}
               onChange={(event) => setScanWorkId(event.target.value)}
-              placeholder="Work ID"
-              className="px-2.5 py-1.5 text-xs bg-muted rounded-lg border border-border w-24"
-            />
+              className="px-2.5 py-1.5 text-xs bg-muted rounded-lg border border-border min-w-40"
+            >
+              <option value="">Select Work ID</option>
+              {works.map((work) => (
+                <option key={work.id} value={String(work.id)}>
+                  #{work.id} - {work.title}
+                </option>
+              ))}
+            </select>
             <button
               onClick={() => {
-                void runSimulatedScan();
+                void runPublicScan();
               }}
               disabled={isScanning}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-md hover:bg-primary/90 transition-all disabled:opacity-50"
             >
               <Zap className="h-3 w-3" />
-              {isScanning ? "Queueing..." : "Run Simulated Scan"}
+              {isScanning ? "Queueing..." : "Run Public Scan"}
+            </button>
+            <button
+              onClick={() => {
+                void handleCleanupLegacyAlerts();
+              }}
+              disabled={isCleaningLegacy}
+              className="px-2.5 py-1.5 bg-muted text-muted-foreground text-xs rounded-md hover:text-foreground transition-all disabled:opacity-50"
+            >
+              {isCleaningLegacy ? "Cleaning..." : "Cleanup Legacy Alerts"}
             </button>
           </div>
         </div>
@@ -185,7 +248,20 @@ export default function Infringement() {
                       </div>
 
                       <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3 flex-wrap">
-                        <span className="flex items-center gap-1"><ExternalLink className="h-2.5 w-2.5" />{c.source_url}</span>
+                        {isLegacyMockSource(c.source_url) ? (
+                          <span className="flex items-center gap-1 text-muted-foreground" title="Legacy simulated source">
+                            <ExternalLink className="h-2.5 w-2.5" />Simulated source (legacy)
+                          </span>
+                        ) : (
+                          <a
+                            href={c.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-primary hover:underline"
+                          >
+                            <ExternalLink className="h-2.5 w-2.5" />{c.source_url}
+                          </a>
+                        )}
                         <span className="flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{new Date(c.last_detected_at).toLocaleString()}</span>
                         <span className="font-mono">INF-{String(c.id).padStart(4, "0")}</span>
                       </div>
