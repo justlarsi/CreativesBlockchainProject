@@ -15,6 +15,7 @@ from django.utils import timezone
 from apps.works.models import ContentHash, CreativeWork
 
 from .models import InfringementAlert, build_source_fingerprint
+from .image_search import search_images_for_work
 
 
 _DDG_RESULT_LINK_RE = re.compile(
@@ -212,7 +213,7 @@ def run_simulated_scan_for_work(work: CreativeWork, candidates: list[dict[str, A
 
 def default_daily_candidates_for_work(work: CreativeWork) -> list[dict[str, Any]]:
     # Simulated source set only; Step 10 explicitly excludes live crawling.
-    return [
+    candidates = [
         {
             'source_url': f'https://mock-platform.example/works/{work.id}',
             'source_platform': 'mock-platform.example',
@@ -226,6 +227,22 @@ def default_daily_candidates_for_work(work: CreativeWork) -> list[dict[str, Any]
             'description': f'{work.description} remix',
         },
     ]
+    
+    # For image works, add image search results
+    if work.category == CreativeWork.Category.IMAGE:
+        try:
+            image_candidates = search_images_for_work(
+                work.title,
+                work.description,
+                max_results=5,
+            )
+            candidates.extend(image_candidates)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f'Failed to fetch image candidates for daily scan: {e}')
+    
+    return candidates
 
 
 def recently_notified(alert: InfringementAlert) -> bool:
@@ -332,6 +349,22 @@ def discover_public_candidates_for_work(
 
         if len(dedup) >= max_items:
             break
+
+    # For image works, also search for similar images
+    if work.category == CreativeWork.Category.IMAGE:
+        try:
+            image_candidates = search_images_for_work(
+                work.title,
+                work.description,
+                max_results=max_items // 2,  # Limit image results to half of max_items
+            )
+            for candidate in image_candidates:
+                dedup.setdefault(candidate['source_url'], candidate)
+        except Exception as e:
+            # Log error but don't fail the scan
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f'Failed to search for image candidates: {e}')
 
     return list(dedup.values())[:max_items], final_platforms
 

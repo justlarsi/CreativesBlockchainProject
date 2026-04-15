@@ -1,5 +1,6 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { FileText, Send, Download, AlertTriangle, Shield, Clock, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { downloadLegalDocument, generateLegalDocument, listLegalDocuments, type LegalDocument } from "@/api/legal";
@@ -37,6 +38,7 @@ const templates = [
 ];
 
 export default function Legal() {
+  const [searchParams] = useSearchParams();
   const [openDialog, setOpenDialog] = useState<string | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [documents, setDocuments] = useState<LegalDocument[]>([]);
@@ -80,6 +82,26 @@ export default function Legal() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    const template = searchParams.get("template");
+    const platform = searchParams.get("platform");
+    const url = searchParams.get("url");
+    const title = searchParams.get("title");
+
+    if (template === "dmca") {
+      setOpenDialog("dmca");
+    } else if (template === "cd") {
+      setOpenDialog("cd");
+    }
+
+    setFormData((current) => ({
+      ...current,
+      ...(platform ? { platform } : {}),
+      ...(url ? { url } : {}),
+      ...(title ? { details: `Marketplace report for ${title}` } : {}),
+    }));
+  }, [searchParams]);
 
   const handleDownload = async (documentId: number, documentLabel: string) => {
     setIsDownloading(documentId);

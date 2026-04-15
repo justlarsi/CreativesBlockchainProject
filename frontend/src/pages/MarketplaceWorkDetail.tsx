@@ -1,7 +1,8 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { getMarketplaceWorkDetail, type MarketplaceWorkDetail } from "@/api/marketplace";
+import { requestCollaboration } from "@/api/collaboration";
 import {
   certificateDownloadUrl,
   prepareLicensePurchase,
@@ -22,6 +23,7 @@ function buildIdempotencyKey(): string {
 export default function MarketplaceWorkDetailPage() {
   const { workId } = useParams();
   const accessToken = localStorage.getItem("access_token") || localStorage.getItem("access");
+  const navigate = useNavigate();
   const [item, setItem] = useState<MarketplaceWorkDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +31,11 @@ export default function MarketplaceWorkDetailPage() {
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [purchaseMessage, setPurchaseMessage] = useState<string | null>(null);
   const [purchaseId, setPurchaseId] = useState<number | null>(null);
+  const [isRequestingCollab, setIsRequestingCollab] = useState(false);
+  const [collabRequestMessage, setCollabRequestMessage] = useState("");
+  const [collabSplitBps, setCollabSplitBps] = useState(5000);
+  const [collabRequestError, setCollabRequestError] = useState<string | null>(null);
+  const [collabRequestSuccess, setCollabRequestSuccess] = useState<string | null>(null);
 
   const { isConnected, isCorrectChain } = useWalletContext();
   const { sendTransactionAsync } = useSendTransaction();
@@ -139,6 +146,45 @@ export default function MarketplaceWorkDetailPage() {
     window.URL.revokeObjectURL(objectUrl);
   }
 
+  async function handleRequestCollaboration(): Promise<void> {
+    if (!item || !accessToken) {
+      setCollabRequestError("Sign in to request a collaboration.");
+      return;
+    }
+
+    setIsRequestingCollab(true);
+    setCollabRequestError(null);
+    setCollabRequestSuccess(null);
+
+    try {
+      const created = await requestCollaboration(accessToken, {
+        work_id: item.work_id,
+        message: collabRequestMessage.trim(),
+        proposed_split_bps: collabSplitBps,
+      });
+      setCollabRequestSuccess(`Collaboration request sent to ${item.creator.username}.`);
+      setCollabRequestMessage("");
+      setCollabSplitBps(created.proposed_split_bps);
+    } catch (err) {
+      setCollabRequestError(err instanceof Error ? err.message : "Failed to send collaboration request.");
+    } finally {
+      setIsRequestingCollab(false);
+    }
+  }
+
+  function handleReportInfringement(): void {
+    if (!item) {
+      return;
+    }
+
+    const reportUrl = new URL("/legal", window.location.origin);
+    reportUrl.searchParams.set("template", "dmca");
+    reportUrl.searchParams.set("platform", "CreativeChain Marketplace");
+    reportUrl.searchParams.set("url", `${window.location.origin}/marketplace/works/${item.work_id}`);
+    reportUrl.searchParams.set("title", item.title);
+    navigate(`${reportUrl.pathname}${reportUrl.search}`);
+  }
+
   return (
     <AppLayout title="Marketplace Detail" subtitle="Public listing detail">
       <div className="space-y-4 animate-fade-in">
@@ -194,6 +240,50 @@ export default function MarketplaceWorkDetailPage() {
               <p className="text-xs text-muted-foreground">
                 Creator payout model: 100% of payment goes to creator via LicenseAgreement.
               </p>
+              <div className="flex flex-wrap gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleRequestCollaboration}
+                  disabled={isRequestingCollab || !accessToken}
+                  className="inline-flex items-center justify-center rounded-md border border-border px-3 py-2 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isRequestingCollab ? "Sending request..." : "Request collaboration"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReportInfringement}
+                  className="inline-flex items-center justify-center rounded-md border border-destructive/30 px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10"
+                >
+                  Report infringement
+                </button>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-2 pt-2">
+                <div>
+                  <label className="text-[11px] text-muted-foreground mb-1 block">Proposed split for you</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={9999}
+                    value={collabSplitBps}
+                    onChange={(event) => setCollabSplitBps(Number(event.target.value || 0))}
+                    className="w-full px-3 py-2 text-xs bg-muted rounded-lg border border-border"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-muted-foreground mb-1 block">Collaboration note</label>
+                  <input
+                    value={collabRequestMessage}
+                    onChange={(event) => setCollabRequestMessage(event.target.value)}
+                    placeholder="Tell the creator what you want to collaborate on"
+                    className="w-full px-3 py-2 text-xs bg-muted rounded-lg border border-border"
+                  />
+                </div>
+              </div>
+
+              {collabRequestError && <p className="text-xs text-destructive">{collabRequestError}</p>}
+              {collabRequestSuccess && <p className="text-xs text-foreground">{collabRequestSuccess}</p>}
+
               {!accessToken && <p className="text-xs text-muted-foreground">Sign in to buy this license.</p>}
               {purchaseError && <p className="text-xs text-destructive">{purchaseError}</p>}
               {purchaseMessage && <p className="text-xs text-foreground">{purchaseMessage}</p>}

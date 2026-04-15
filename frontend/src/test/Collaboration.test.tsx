@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import Collaboration from "@/pages/Collaboration";
-import { approveCollaboration, listCollaborations } from "@/api/collaboration";
+import { approveCollaboration, listCollaborations, listCollaborationRequests } from "@/api/collaboration";
 
 vi.mock("@/components/AppLayout", () => ({
   AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -14,11 +14,13 @@ vi.mock("@/api/collaboration", async () => {
   return {
     ...actual,
     listCollaborations: vi.fn(),
+    listCollaborationRequests: vi.fn(),
     approveCollaboration: vi.fn(),
   };
 });
 
 const mockedListCollaborations = vi.mocked(listCollaborations);
+const mockedListCollaborationRequests = vi.mocked(listCollaborationRequests);
 const mockedApproveCollaboration = vi.mocked(approveCollaboration);
 
 describe("Collaboration page", () => {
@@ -68,6 +70,7 @@ describe("Collaboration page", () => {
         updated_at: new Date().toISOString(),
       },
     ]);
+    mockedListCollaborationRequests.mockResolvedValue([]);
     mockedApproveCollaboration.mockResolvedValue({ detail: "ok" });
   });
 

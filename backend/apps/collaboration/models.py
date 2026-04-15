@@ -28,6 +28,7 @@ class Collaboration(models.Model):
 	blockchain_block_number = models.BigIntegerField(null=True, blank=True)
 	blockchain_registered_at = models.DateTimeField(null=True, blank=True)
 	blockchain_error_message = models.TextField(blank=True, default='')
+	media_count = models.PositiveIntegerField(default=0)
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
 
@@ -64,6 +65,85 @@ class CollaborationMember(models.Model):
 
 	def __str__(self) -> str:
 		return f'{self.collaboration_id}:{self.user_id}:{self.split_bps}'
+
+
+class CollaborationMedia(models.Model):
+	"""Media files uploaded by collaborators for the collaboration work."""
+	
+	collaboration = models.ForeignKey(
+		Collaboration,
+		on_delete=models.CASCADE,
+		related_name='media',
+	)
+	user = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.PROTECT,
+		related_name='collaboration_media',
+	)
+	file = models.FileField(upload_to='collaboration/media/%Y/%m/%d/')
+	filename = models.CharField(max_length=255)
+	file_size = models.BigIntegerField()
+	mime_type = models.CharField(max_length=100, blank=True, default='')
+	description = models.TextField(blank=True, default='')
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		db_table = 'collaboration_media'
+		ordering = ['-created_at']
+
+	def __str__(self) -> str:
+		return f'{self.collaboration_id}:{self.user_id}:{self.filename}'
+
+
+class CollaborationRequest(models.Model):
+	class Status(models.TextChoices):
+		PENDING = 'PENDING', 'Pending'
+		ACCEPTED = 'ACCEPTED', 'Accepted'
+		REJECTED = 'REJECTED', 'Rejected'
+
+	work = models.ForeignKey(CreativeWork, on_delete=models.CASCADE, related_name='collaboration_requests')
+	creator = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='incoming_collaboration_requests',
+	)
+	requester = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='outgoing_collaboration_requests',
+	)
+	message = models.TextField(blank=True, default='')
+	proposed_split_bps = models.PositiveIntegerField(default=5000)
+	status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+	collaboration = models.OneToOneField(
+		Collaboration,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='source_request',
+	)
+	responded_at = models.DateTimeField(null=True, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		db_table = 'collaboration_request'
+		ordering = ['-created_at']
+		constraints = [
+			models.UniqueConstraint(
+				fields=['work', 'requester'],
+				condition=models.Q(status='PENDING'),
+				name='uniq_pending_collaboration_request_per_work_requester',
+			),
+			models.CheckConstraint(
+				check=models.Q(proposed_split_bps__gte=1) & models.Q(proposed_split_bps__lte=9999),
+				name='collab_request_split_bps_range',
+			),
+		]
+
+	def __str__(self) -> str:
+		return f'{self.id}:{self.work_id}:{self.requester_id}:{self.status}'
 
 
 class RevenueSplitRecord(models.Model):

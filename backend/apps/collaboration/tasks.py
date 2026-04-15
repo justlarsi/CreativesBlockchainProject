@@ -97,3 +97,37 @@ def verify_collaboration_receipt_task(self, collaboration_id: int, tx_hash: str)
         'block_number': verification['block_number'],
     }
 
+
+@shared_task(name='collaboration.add_work_for_collaboration')
+def add_work_for_collaboration_task(collaboration_id: int) -> dict:
+    """Create related work metadata/records for the collaboration."""
+    try:
+        collaboration = Collaboration.objects.select_related('work', 'creator').get(id=collaboration_id)
+    except Collaboration.DoesNotExist:
+        logger.error('add_work_for_collaboration_task: collaboration %s not found', collaboration_id)
+        return {'status': 'not_found', 'collaboration_id': collaboration_id}
+
+    # Optional: Register collaboration work on blockchain or perform other work-related operations
+    # For now, this task is a placeholder for future work additions
+    logger.info(
+        'add_work_for_collaboration_task: collaboration %s linked to work %s',
+        collaboration_id,
+        collaboration.work_id,
+    )
+
+    AuditLog.objects.create(
+        user=collaboration.creator,
+        action='collaboration_work_processed',
+        entity_type='collaboration',
+        entity_id=str(collaboration.id),
+        metadata={
+            'work_id': collaboration.work_id,
+        },
+    )
+
+    return {
+        'status': 'ok',
+        'collaboration_id': collaboration.id,
+        'work_id': collaboration.work_id,
+    }
+

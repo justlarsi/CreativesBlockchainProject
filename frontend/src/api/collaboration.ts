@@ -17,6 +17,8 @@ export type CollaborationStatus =
 
 export type CollaborationMemberApprovalStatus = "PENDING" | "APPROVED";
 
+export type CollaborationRequestStatus = "PENDING" | "ACCEPTED" | "REJECTED";
+
 export interface CollaborationMemberRecord {
   id: number;
   user_id: number;
@@ -46,11 +48,73 @@ export interface CollaborationRecord {
   updated_at: string;
 }
 
+export interface CollaborationRequestRecord {
+  id: number;
+  work_id: number;
+  work_title: string;
+  work_category: string;
+  creator_id: number;
+  creator_username: string;
+  requester_id: number;
+  requester_username: string;
+  message: string;
+  proposed_split_bps: number;
+  status: CollaborationRequestStatus;
+  collaboration_id: number | null;
+  responded_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export async function listCollaborations(token?: string): Promise<CollaborationRecord[]> {
   return authenticatedFetchJson<CollaborationRecord[]>(
     `/api/v1/collaborations/`,
     {
       method: "GET",
+      headers: withAuthHeader(token),
+    }
+  );
+}
+
+export async function listCollaborationRequests(token?: string): Promise<CollaborationRequestRecord[]> {
+  return authenticatedFetchJson<CollaborationRequestRecord[]>(
+    `/api/v1/collaborations/requests/`,
+    {
+      method: "GET",
+      headers: withAuthHeader(token),
+    }
+  );
+}
+
+export async function requestCollaboration(
+  token: string,
+  payload: { work_id: number; message?: string; proposed_split_bps?: number },
+): Promise<CollaborationRequestRecord> {
+  return authenticatedFetchJson<CollaborationRequestRecord>(
+    `/api/v1/collaborations/requests/`,
+    {
+      method: "POST",
+      headers: withAuthHeader(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function acceptCollaborationRequest(token: string, requestId: number): Promise<CollaborationRecord> {
+  return authenticatedFetchJson<CollaborationRecord>(
+    `/api/v1/collaborations/requests/${requestId}/accept/`,
+    {
+      method: "POST",
+      headers: withAuthHeader(token),
+    }
+  );
+}
+
+export async function rejectCollaborationRequest(token: string, requestId: number): Promise<{ status: string; request_id: number }> {
+  return authenticatedFetchJson<{ status: string; request_id: number }>(
+    `/api/v1/collaborations/requests/${requestId}/reject/`,
+    {
+      method: "POST",
       headers: withAuthHeader(token),
     }
   );

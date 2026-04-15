@@ -6,10 +6,106 @@ from rest_framework import serializers
 from apps.accounts.models import Wallet
 from apps.works.models import CreativeWork
 
-from .models import Collaboration, CollaborationMember
+from .models import Collaboration, CollaborationMember, CollaborationMedia, CollaborationRequest
 
 User = get_user_model()
 TOTAL_BPS = 10_000
+
+
+class CollaborationMediaSerializer(serializers.ModelSerializer):
+	user_id = serializers.IntegerField(source='user.id', read_only=True)
+	username = serializers.CharField(source='user.username', read_only=True)
+
+	class Meta:
+		model = CollaborationMedia
+		fields = [
+			'id',
+			'user_id',
+			'username',
+			'filename',
+			'file_size',
+			'mime_type',
+			'description',
+			'created_at',
+			'updated_at',
+		]
+		read_only_fields = fields
+
+
+class CollaborationMediaUploadSerializer(serializers.ModelSerializer):
+	class Meta:
+		model = CollaborationMedia
+		fields = ['file', 'description']
+
+
+class CollaborationRequestCreateSerializer(serializers.Serializer):
+    work_id = serializers.IntegerField(min_value=1)
+    message = serializers.CharField(required=False, allow_blank=True, default='')
+    proposed_split_bps = serializers.IntegerField(min_value=1, max_value=TOTAL_BPS - 1, default=5000)
+
+    def validate(self, attrs):
+        request = self.context['request']
+        try:
+            work = CreativeWork.objects.select_related('owner').get(id=attrs['work_id'])
+        except CreativeWork.DoesNotExist as exc:
+            raise serializers.ValidationError({'work_id': 'Creative work does not exist.'}) from exc
+
+        if work.owner_id == request.user.id:
+            raise serializers.ValidationError({'work_id': 'You cannot request a collaboration on your own work.'})
+
+        if hasattr(work, 'collaboration') and work.collaboration.status in {
+            Collaboration.Status.PENDING_APPROVAL,
+            Collaboration.Status.APPROVED,
+            Collaboration.Status.BLOCKCHAIN_REGISTRATION_PENDING,
+            Collaboration.Status.REGISTERED,
+        }:
+            raise serializers.ValidationError({'work_id': 'This work already has an active collaboration.'})
+
+        if CollaborationRequest.objects.filter(work=work, requester=request.user, status=CollaborationRequest.Status.PENDING).exists():
+            raise serializers.ValidationError({'detail': 'You already have a pending collaboration request for this work.'})
+
+        attrs['work'] = work
+        return attrs
+
+    def create(self, validated_data):
+        request = self.context['request']
+        work = validated_data['work']
+        return CollaborationRequest.objects.create(
+            work=work,
+            creator=work.owner,
+            requester=request.user,
+            message=validated_data.get('message', ''),
+            proposed_split_bps=validated_data.get('proposed_split_bps', 5000),
+        )
+
+
+class CollaborationRequestSerializer(serializers.ModelSerializer):
+    creator_username = serializers.CharField(source='creator.username', read_only=True)
+    requester_username = serializers.CharField(source='requester.username', read_only=True)
+    work_title = serializers.CharField(source='work.title', read_only=True)
+    work_category = serializers.CharField(source='work.category', read_only=True)
+    collaboration_id = serializers.IntegerField(source='collaboration.id', read_only=True)
+
+    class Meta:
+        model = CollaborationRequest
+        fields = [
+            'id',
+            'work_id',
+            'work_title',
+            'work_category',
+            'creator_id',
+            'creator_username',
+            'requester_id',
+            'requester_username',
+            'message',
+            'proposed_split_bps',
+            'status',
+            'collaboration_id',
+            'responded_at',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = fields
 
 
 class CollaborationMemberInputSerializer(serializers.Serializer):
@@ -53,6 +149,7 @@ class CollaborationMemberSerializer(serializers.ModelSerializer):
 
 class CollaborationSerializer(serializers.ModelSerializer):
     members = CollaborationMemberSerializer(many=True, read_only=True)
+    media = CollaborationMediaSerializer(many=True, read_only=True)
     approvals_required = serializers.SerializerMethodField()
     approvals_received = serializers.SerializerMethodField()
 
@@ -69,7 +166,9 @@ class CollaborationSerializer(serializers.ModelSerializer):
             'blockchain_error_message',
             'approvals_required',
             'approvals_received',
+            'media_count',
             'members',
+            'media',
             'created_at',
             'updated_at',
         ]
@@ -82,6 +181,37 @@ class CollaborationSerializer(serializers.ModelSerializer):
         return obj.members.exclude(user_id=obj.creator_id).filter(
             approval_status=CollaborationMember.ApprovalStatus.APPROVED
         ).count()
+
+
+class PendingCollaborationSerializer(serializers.ModelSerializer):
+    """Serializer for collaboration requests pending user approval."""
+    creator_username = serializers.CharField(source='creator.username', read_only=True)
+    work_title = serializers.CharField(source='work.title', read_only=True)
+    your_split_bps = serializers.SerializerMethodField()
+    members = CollaborationMemberSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Collaboration
+        fields = [
+            'id',
+            'work_id',
+            'work_title',
+            'creator_id',
+            'creator_username',
+            'status',
+            'your_split_bps',
+            'members',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_your_split_bps(self, obj: Collaboration) -> int:
+        """Get the revenue share for the requesting user."""
+        request_user = self.context.get('request').user if self.context.get('request') else None
+        if not request_user:
+            return 0
+        member = obj.members.filter(user=request_user).first()
+        return member.split_bps if member else 0
 
 
 class CollaborationCreateSerializer(serializers.Serializer):
@@ -168,6 +298,9 @@ class CollaborationCreateSerializer(serializers.Serializer):
 
     @transaction.atomic
     def create(self, validated_data):
+        from django.db import transaction as db_transaction
+        from .tasks import add_work_for_collaboration_task
+        
         request = self.context['request']
         work = validated_data['work']
 
@@ -197,6 +330,9 @@ class CollaborationCreateSerializer(serializers.Serializer):
         ).exists():
             collaboration.status = Collaboration.Status.APPROVED
             collaboration.save(update_fields=['status', 'updated_at'])
+
+        # Dispatch asynchronous task after transaction commit (removed email notification)
+        db_transaction.on_commit(lambda: add_work_for_collaboration_task.delay(collaboration.id))
 
         return collaboration
 

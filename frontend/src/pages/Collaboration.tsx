@@ -2,7 +2,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, DollarSign, CheckCircle, ArrowRight, FileText, Percent, UserPlus, ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { approveCollaboration, listCollaborations, getCollaborationEarnings, getCollaborationContract, type CollaborationRecord } from "@/api/collaboration";
+import { approveCollaboration, acceptCollaborationRequest, rejectCollaborationRequest, listCollaborationRequests, listCollaborations, getCollaborationEarnings, getCollaborationContract, type CollaborationRecord, type CollaborationRequestRecord } from "@/api/collaboration";
 import {
   Dialog,
   DialogContent,
@@ -51,6 +51,7 @@ export default function Collaboration() {
   const [newCollabOpen, setNewCollabOpen] = useState(false);
   const [collabForm, setCollabForm] = useState({ title: "", type: "Music", invite: "" });
   const [collaborations, setCollaborations] = useState<CollaborationRecord[]>([]);
+  const [requests, setRequests] = useState<CollaborationRequestRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<number | null>(null);
@@ -66,8 +67,12 @@ export default function Collaboration() {
     setIsLoading(true);
     setError(null);
     try {
-      const records = await listCollaborations(accessToken || undefined);
+      const [records, incomingRequests] = await Promise.all([
+        listCollaborations(accessToken || undefined),
+        isAuthenticated ? listCollaborationRequests(accessToken || undefined) : Promise.resolve([]),
+      ]);
       setCollaborations(records);
+      setRequests(incomingRequests);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load collaborations.");
     } finally {
@@ -128,12 +133,84 @@ export default function Collaboration() {
     }
   }
 
+  async function handleAcceptRequest(requestId: number): Promise<void> {
+    if (!accessToken) {
+      toast.error("Sign in to accept collaboration requests.");
+      return;
+    }
+
+    setApprovingId(requestId);
+    try {
+      await acceptCollaborationRequest(accessToken, requestId);
+      toast.success("Collaboration request accepted.");
+      await loadCollaborations();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to accept collaboration request.");
+    } finally {
+      setApprovingId(null);
+    }
+  }
+
+  async function handleRejectRequest(requestId: number): Promise<void> {
+    if (!accessToken) {
+      toast.error("Sign in to reject collaboration requests.");
+      return;
+    }
+
+    setApprovingId(requestId);
+    try {
+      await rejectCollaborationRequest(accessToken, requestId);
+      toast.success("Collaboration request rejected.");
+      await loadCollaborations();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to reject collaboration request.");
+    } finally {
+      setApprovingId(null);
+    }
+  }
+
   return (
     <AppLayout title="Collaboration" subtitle="Transparent multi-party revenue splits">
       <div className="space-y-5 animate-fade-in">
         {!isAuthenticated && (
           <div className="stat-card rounded-xl p-4">
             <p className="text-xs text-muted-foreground">Sign in to view and manage collaborations.</p>
+          </div>
+        )}
+
+        {isAuthenticated && requests.length > 0 && (
+          <div className="stat-card rounded-xl p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-display font-semibold text-sm text-foreground">Incoming Collaboration Requests</h3>
+              <span className="text-xs text-muted-foreground">{requests.length} request{requests.length === 1 ? "" : "s"}</span>
+            </div>
+            <div className="space-y-3">
+              {requests.map((request) => (
+                <div key={request.id} className="rounded-lg border border-border p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">{request.work_title}</p>
+                    <p className="text-xs text-muted-foreground">From {request.requester_username} · Split {request.proposed_split_bps / 100}%</p>
+                    {request.message && <p className="text-xs text-muted-foreground mt-1">{request.message}</p>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => void handleAcceptRequest(request.id)}
+                      disabled={approvingId === request.id}
+                      className="px-3 py-1.5 rounded-md text-xs bg-primary text-primary-foreground disabled:opacity-50"
+                    >
+                      {approvingId === request.id ? "Accepting..." : "Accept"}
+                    </button>
+                    <button
+                      onClick={() => void handleRejectRequest(request.id)}
+                      disabled={approvingId === request.id}
+                      className="px-3 py-1.5 rounded-md text-xs bg-muted text-muted-foreground disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
