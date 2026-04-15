@@ -5,7 +5,7 @@ import hashlib
 from decimal import Decimal, InvalidOperation
 
 from django.core.cache import cache
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
@@ -15,15 +15,15 @@ from apps.works.models import CreativeWork
 
 from .models import MarketplaceListing
 from .pagination import MarketplaceCursorPagination
-from .serializers import MarketplaceListingDetailSerializer, MarketplaceListingListSerializer
+from .serializers import MarketplaceWorkDetailSerializer, MarketplaceWorkListSerializer
 
 
 class MarketplaceListView(generics.ListAPIView):
-    """Browse marketplace"""
+    """Browse marketplace - shows all registered works"""
     CACHE_TTL_SECONDS = 60
 
     permission_classes = [AllowAny]
-    serializer_class = MarketplaceListingListSerializer
+    serializer_class = MarketplaceWorkListSerializer
     pagination_class = MarketplaceCursorPagination
 
     def _build_cache_key(self) -> str:
@@ -42,37 +42,50 @@ class MarketplaceListView(generics.ListAPIView):
         return response
 
     def get_queryset(self):
+        # Prefetch optional marketplace listing (LEFT JOIN)
+        listing_prefetch = Prefetch(
+            'marketplace_listing',
+            MarketplaceListing.objects.all()
+        )
+
         queryset = (
-            MarketplaceListing.objects
-            .select_related('work', 'work__owner')
-            .prefetch_related('work__owner__wallets')
-            .filter(
-                is_listed=True,
-                work__status=CreativeWork.Status.REGISTERED,
-            )
+            CreativeWork.objects
+            .filter(status=CreativeWork.Status.REGISTERED)
+            .select_related('owner')
+            .prefetch_related('owner__wallets', listing_prefetch)
         )
 
         category = self.request.query_params.get('category')
         if category:
-            queryset = queryset.filter(work__category=category)
-
-        license_type = self.request.query_params.get('license_type')
-        if license_type:
-            queryset = queryset.filter(license_type=license_type)
+            queryset = queryset.filter(category=category)
 
         search = self.request.query_params.get('search')
         if search:
             queryset = queryset.filter(
-                Q(work__title__icontains=search) | Q(work__description__icontains=search)
+                Q(title__icontains=search) | Q(description__icontains=search)
             )
 
+        # Price filters require the marketplace listing to exist
         min_price = self.request.query_params.get('min_price')
-        if min_price not in (None, ''):
-            queryset = queryset.filter(price_amount__gte=self._parse_decimal(min_price, 'min_price'))
-
         max_price = self.request.query_params.get('max_price')
-        if max_price not in (None, ''):
-            queryset = queryset.filter(price_amount__lte=self._parse_decimal(max_price, 'max_price'))
+        license_type = self.request.query_params.get('license_type')
+
+        if min_price not in (None, '') or max_price not in (None, '') or license_type:
+            # Only apply filters if listing exists for these fields
+            queryset = queryset.filter(marketplace_listing__isnull=False)
+            
+            if license_type:
+                queryset = queryset.filter(marketplace_listing__license_type=license_type)
+            
+            if min_price not in (None, ''):
+                queryset = queryset.filter(
+                    marketplace_listing__price_amount__gte=self._parse_decimal(min_price, 'min_price')
+                )
+            
+            if max_price not in (None, ''):
+                queryset = queryset.filter(
+                    marketplace_listing__price_amount__lte=self._parse_decimal(max_price, 'max_price')
+                )
 
         return queryset
 
@@ -87,17 +100,20 @@ class MarketplaceListView(generics.ListAPIView):
 class MarketplaceWorkDetailView(generics.RetrieveAPIView):
     """Get marketplace work details"""
     permission_classes = [AllowAny]
-    serializer_class = MarketplaceListingDetailSerializer
-    lookup_field = 'work_id'
+    serializer_class = MarketplaceWorkDetailSerializer
+    lookup_field = 'id'
     lookup_url_kwarg = 'pk'
 
     def get_queryset(self):
+        # Prefetch optional marketplace listing (LEFT JOIN)
+        listing_prefetch = Prefetch(
+            'marketplace_listing',
+            MarketplaceListing.objects.all()
+        )
+
         return (
-            MarketplaceListing.objects
-            .select_related('work', 'work__owner')
-            .prefetch_related('work__owner__wallets')
-            .filter(
-                is_listed=True,
-                work__status=CreativeWork.Status.REGISTERED,
-            )
+            CreativeWork.objects
+            .filter(status=CreativeWork.Status.REGISTERED)
+            .select_related('owner')
+            .prefetch_related('owner__wallets', listing_prefetch)
         )

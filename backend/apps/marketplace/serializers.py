@@ -1,19 +1,19 @@
 from rest_framework import serializers
 
+from apps.works.models import CreativeWork
 from .models import MarketplaceListing
 
 
-class MarketplaceListingListSerializer(serializers.ModelSerializer):
-	work_id = serializers.IntegerField(source='work.id', read_only=True)
-	title = serializers.CharField(source='work.title', read_only=True)
-	description = serializers.CharField(source='work.description', read_only=True)
-	category = serializers.CharField(source='work.category', read_only=True)
+class MarketplaceWorkListSerializer(serializers.ModelSerializer):
+	"""Serializer for work list in marketplace (with optional pricing)"""
 	creator = serializers.SerializerMethodField()
+	license_type = serializers.SerializerMethodField()
+	price_amount = serializers.SerializerMethodField()
 
 	class Meta:
-		model = MarketplaceListing
+		model = CreativeWork
 		fields = [
-			'work_id',
+			'id',
 			'title',
 			'description',
 			'category',
@@ -26,27 +26,33 @@ class MarketplaceListingListSerializer(serializers.ModelSerializer):
 
 	def get_creator(self, obj):
 		return {
-			'username': obj.work.owner.username,
-			# Avatar support is not implemented yet; keep nullable contract for frontend.
+			'username': obj.owner.username,
 			'avatar_url': None,
 		}
 
+	def get_license_type(self, obj):
+		# Return license_type if marketplace listing exists, else None
+		if hasattr(obj, 'marketplace_listing') and obj.marketplace_listing:
+			return obj.marketplace_listing.license_type
+		return None
 
-class MarketplaceListingDetailSerializer(serializers.ModelSerializer):
-	work_id = serializers.IntegerField(source='work.id', read_only=True)
-	title = serializers.CharField(source='work.title', read_only=True)
-	description = serializers.CharField(source='work.description', read_only=True)
-	category = serializers.CharField(source='work.category', read_only=True)
-	status = serializers.CharField(source='work.status', read_only=True)
-	ipfs_metadata_cid = serializers.CharField(source='work.ipfs_metadata_cid', read_only=True)
-	created_at = serializers.DateTimeField(source='work.created_at', read_only=True)
-	updated_at = serializers.DateTimeField(source='work.updated_at', read_only=True)
+	def get_price_amount(self, obj):
+		# Return price if marketplace listing exists, else None
+		if hasattr(obj, 'marketplace_listing') and obj.marketplace_listing:
+			return str(obj.marketplace_listing.price_amount)
+		return None
+
+
+class MarketplaceWorkDetailSerializer(serializers.ModelSerializer):
+	"""Serializer for work detail in marketplace (with optional pricing and creator info)"""
+	license_type = serializers.SerializerMethodField()
+	price_amount = serializers.SerializerMethodField()
 	creator = serializers.SerializerMethodField()
 
 	class Meta:
-		model = MarketplaceListing
+		model = CreativeWork
 		fields = [
-			'work_id',
+			'id',
 			'title',
 			'description',
 			'category',
@@ -60,8 +66,20 @@ class MarketplaceListingDetailSerializer(serializers.ModelSerializer):
 		]
 		read_only_fields = fields
 
+	def get_license_type(self, obj):
+		# Return license_type if marketplace listing exists, else None
+		if hasattr(obj, 'marketplace_listing') and obj.marketplace_listing:
+			return obj.marketplace_listing.license_type
+		return None
+
+	def get_price_amount(self, obj):
+		# Return price if marketplace listing exists, else None
+		if hasattr(obj, 'marketplace_listing') and obj.marketplace_listing:
+			return str(obj.marketplace_listing.price_amount)
+		return None
+
 	def get_creator(self, obj):
-		owner = obj.work.owner
+		owner = obj.owner
 		primary_wallet = owner.wallets.filter(is_primary=True).first()
 		wallet_address = primary_wallet.address if primary_wallet else None
 		if wallet_address is None:
